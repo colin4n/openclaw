@@ -258,3 +258,15 @@
   - `node --import tsx scripts/release-check.ts`
   - `pnpm release:check`
   - `pnpm test:install:smoke` or `OPENCLAW_INSTALL_SMOKE_SKIP_NONROOT=1 pnpm test:install:smoke` for non-root smoke path.
+
+## CodeWiki Knowledge Persistence (Learning Mode)
+
+- Knowledge base: `.document/` at repo root. Full AI behavior rules + contribution guide: `.document/README.md`.
+- When the user is **learning, exploring, or asking architecture/design questions** (e.g. "How does X work?", "Explain Y", "What is the architecture of Z"), **do NOT write code or modify source files**. Instead:
+  1. Read the relevant source files to research the answer.
+  2. Write findings to `.document/` — add a section to an existing doc or create `.document/<NN>-<kebab-topic>.md`.
+  3. Update `.document/README.md` Table of Contents if a new file was created.
+  4. Tell the user what was written and where.
+- When the user is **debugging, fixing a bug, or adding a feature**, write code as normal.
+- If intent is ambiguous, ask: "Should I (A) document this in `.document/` for the knowledge base, or (B) write/run code?"
+- Document naming: two-digit prefix + kebab-case topic, e.g. `11-routing-system.md`. Next available: **11**.
