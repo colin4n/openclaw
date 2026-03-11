@@ -44,7 +44,7 @@ If intent is **ambiguous**, ask:
 
 `<two-digit-number>-<lowercase-kebab-topic>.md` — Example: `11-routing-system.md`
 
-Next available number: **11**
+Next available number: **16**
 
 ### New document structure
 
@@ -94,6 +94,11 @@ Append a new numbered section at the end of the relevant file:
 | 08 | [Infrastructure (infra)](./08-infra.md) | Exec approvals, fs-safe, ports, heartbeat, retry, update runner |
 | 09 | [Config & Secrets](./09-config-and-secrets.md) | Config schema, session store, secrets runtime, auth surfaces |
 | 10 | [Security Model](./10-security-model.md) | Trust model, exec approval flow, SSRF policy, auth boundaries |
+| 11 | [Routing System](./11-routing-system.md) | 7-tier agent routing, session key construction, bindings |
+| 12 | [Memory System](./12-memory-system.md) | Vector + FTS search, embedding providers, session memory hooks |
+| 13 | [Hooks System](./13-hooks-system.md) | Internal hooks, bundled hooks, user-configured hooks |
+| 14 | [ACP — Agent Control Protocol](./14-acp.md) | ACP adapter, session modes, streaming events, commands |
+| 15 | [Media Pipeline](./15-media-pipeline.md) | Media I/O (FFmpeg, Sharp), AI understanding (transcription, vision) |
 
 ---
 
@@ -139,18 +144,13 @@ openclaw/
 
 ## Adding New Topics
 
-Next available document number: **11**
+Next available document number: **16**
 
 Topics not yet covered that would be valuable additions:
-- Routing system (`src/routing/`)
 - Auto-reply system (`src/auto-reply/`)
-- ACP (Agent Control Protocol) (`src/acp/`)
-- Media pipeline (`src/media/`, `src/media-understanding/`)
-- Hooks system deep-dive (`src/hooks/`)
 - Cron system deep-dive (`src/cron/`)
 - TUI (Terminal UI) (`src/tui/`)
 - Browser/computer-use tools (`src/browser/`)
-- Memory system (`src/memory/`)
 - Canvas system (`src/canvas-host/`)
 - Node host (remote execution) (`src/node-host/`)
 
