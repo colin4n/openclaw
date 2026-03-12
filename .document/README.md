@@ -99,6 +99,7 @@ Append a new numbered section at the end of the relevant file:
 | 13 | [Hooks System](./13-hooks-system.md) | Internal hooks, bundled hooks, user-configured hooks |
 | 14 | [ACP — Agent Control Protocol](./14-acp.md) | ACP adapter, session modes, streaming events, commands |
 | 15 | [Media Pipeline](./15-media-pipeline.md) | Media I/O (FFmpeg, Sharp), AI understanding (transcription, vision) |
+| 16 | [技术架构图](./16-technical-architecture-diagram.md) | 完整技术架构图：分层架构、消息生命周期、插件系统、安全模型、启动时序 |
 
 ---
 
