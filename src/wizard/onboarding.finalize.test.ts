@@ -13,13 +13,6 @@ const buildGatewayInstallPlan = vi.hoisted(() =>
   })),
 );
 const gatewayServiceInstall = vi.hoisted(() => vi.fn(async () => {}));
-const gatewayServiceRestart = vi.hoisted(() =>
-  vi.fn<() => Promise<{ outcome: "completed" } | { outcome: "scheduled" }>>(async () => ({
-    outcome: "completed",
-  })),
-);
-const gatewayServiceUninstall = vi.hoisted(() => vi.fn(async () => {}));
-const gatewayServiceIsLoaded = vi.hoisted(() => vi.fn(async () => false));
 const resolveGatewayInstallToken = vi.hoisted(() =>
   vi.fn(async () => ({
     token: undefined,
@@ -63,18 +56,14 @@ vi.mock("../commands/health.js", () => ({
   healthCommand: vi.fn(async () => {}),
 }));
 
-vi.mock("../daemon/service.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../daemon/service.js")>();
-  return {
-    ...actual,
-    resolveGatewayService: vi.fn(() => ({
-      isLoaded: gatewayServiceIsLoaded,
-      restart: gatewayServiceRestart,
-      uninstall: gatewayServiceUninstall,
-      install: gatewayServiceInstall,
-    })),
-  };
-});
+vi.mock("../daemon/service.js", () => ({
+  resolveGatewayService: vi.fn(() => ({
+    isLoaded: vi.fn(async () => false),
+    restart: vi.fn(async () => {}),
+    uninstall: vi.fn(async () => {}),
+    install: gatewayServiceInstall,
+  })),
+}));
 
 vi.mock("../daemon/systemd.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../daemon/systemd.js")>();
@@ -110,13 +99,6 @@ function createRuntime(): RuntimeEnv {
   };
 }
 
-function expectFirstOnboardingInstallPlanCallOmitsToken() {
-  const [firstArg] =
-    (buildGatewayInstallPlan.mock.calls.at(0) as [Record<string, unknown>] | undefined) ?? [];
-  expect(firstArg).toBeDefined();
-  expect(firstArg && "token" in firstArg).toBe(false);
-}
-
 describe("finalizeOnboardingWizard", () => {
   beforeEach(() => {
     runTui.mockClear();
@@ -124,11 +106,6 @@ describe("finalizeOnboardingWizard", () => {
     setupOnboardingShellCompletion.mockClear();
     buildGatewayInstallPlan.mockClear();
     gatewayServiceInstall.mockClear();
-    gatewayServiceIsLoaded.mockReset();
-    gatewayServiceIsLoaded.mockResolvedValue(false);
-    gatewayServiceRestart.mockReset();
-    gatewayServiceRestart.mockResolvedValue({ outcome: "completed" });
-    gatewayServiceUninstall.mockReset();
     resolveGatewayInstallToken.mockClear();
     isSystemdUserServiceAvailable.mockReset();
     isSystemdUserServiceAvailable.mockResolvedValue(true);
@@ -136,7 +113,7 @@ describe("finalizeOnboardingWizard", () => {
 
   it("resolves gateway password SecretRef for probe and TUI", async () => {
     const previous = process.env.OPENCLAW_GATEWAY_PASSWORD;
-    process.env.OPENCLAW_GATEWAY_PASSWORD = "resolved-gateway-password"; // pragma: allowlist secret
+    process.env.OPENCLAW_GATEWAY_PASSWORD = "resolved-gateway-password";
     const select = vi.fn(async (params: { message: string }) => {
       if (params.message === "How do you want to hatch your bot?") {
         return "tui";
@@ -202,13 +179,13 @@ describe("finalizeOnboardingWizard", () => {
     expect(probeGatewayReachable).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "ws://127.0.0.1:18789",
-        password: "resolved-gateway-password", // pragma: allowlist secret
+        password: "resolved-gateway-password",
       }),
     );
     expect(runTui).toHaveBeenCalledWith(
       expect.objectContaining({
         url: "ws://127.0.0.1:18789",
-        password: "resolved-gateway-password", // pragma: allowlist secret
+        password: "resolved-gateway-password",
       }),
     );
   });
@@ -256,55 +233,11 @@ describe("finalizeOnboardingWizard", () => {
     });
 
     expect(resolveGatewayInstallToken).toHaveBeenCalledTimes(1);
-    expect(buildGatewayInstallPlan).toHaveBeenCalledTimes(1);
-    expectFirstOnboardingInstallPlanCallOmitsToken();
+    expect(buildGatewayInstallPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: undefined,
+      }),
+    );
     expect(gatewayServiceInstall).toHaveBeenCalledTimes(1);
-  });
-
-  it("stops after a scheduled restart instead of reinstalling the service", async () => {
-    const progressUpdate = vi.fn();
-    const progressStop = vi.fn();
-    gatewayServiceIsLoaded.mockResolvedValue(true);
-    gatewayServiceRestart.mockResolvedValueOnce({ outcome: "scheduled" });
-    const prompter = buildWizardPrompter({
-      select: vi.fn(async (params: { message: string }) => {
-        if (params.message === "Gateway service already installed") {
-          return "restart";
-        }
-        return "later";
-      }) as never,
-      confirm: vi.fn(async () => false),
-      progress: vi.fn(() => ({ update: progressUpdate, stop: progressStop })),
-    });
-
-    await finalizeOnboardingWizard({
-      flow: "advanced",
-      opts: {
-        acceptRisk: true,
-        authChoice: "skip",
-        installDaemon: true,
-        skipHealth: true,
-        skipUi: true,
-      },
-      baseConfig: {},
-      nextConfig: {},
-      workspaceDir: "/tmp",
-      settings: {
-        port: 18789,
-        bind: "loopback",
-        authMode: "token",
-        gatewayToken: undefined,
-        tailscaleMode: "off",
-        tailscaleResetOnExit: false,
-      },
-      prompter,
-      runtime: createRuntime(),
-    });
-
-    expect(gatewayServiceRestart).toHaveBeenCalledTimes(1);
-    expect(gatewayServiceInstall).not.toHaveBeenCalled();
-    expect(gatewayServiceUninstall).not.toHaveBeenCalled();
-    expect(progressUpdate).toHaveBeenCalledWith("Restarting Gateway service…");
-    expect(progressStop).toHaveBeenCalledWith("Gateway service restart scheduled.");
   });
 });

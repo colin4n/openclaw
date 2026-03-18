@@ -16,7 +16,6 @@ import type {
   GatewayServiceInstallArgs,
   GatewayServiceManageArgs,
   GatewayServiceRenderArgs,
-  GatewayServiceRestartResult,
 } from "./service-types.js";
 
 function resolveTaskName(env: GatewayServiceEnv): string {
@@ -153,31 +152,31 @@ function normalizeTaskResultCode(value?: string): string | null {
     }
   }
 
-  return null;
+  return raw;
 }
-
-const RUNNING_RESULT_CODES = new Set(["0x41301"]);
-const UNKNOWN_STATUS_DETAIL =
-  "Task status is locale-dependent and no numeric Last Run Result was available.";
 
 export function deriveScheduledTaskRuntimeStatus(parsed: ScheduledTaskInfo): {
   status: GatewayServiceRuntime["status"];
   detail?: string;
 } {
+  const statusRaw = parsed.status?.trim().toLowerCase();
+  if (!statusRaw) {
+    return { status: "unknown" };
+  }
+  if (statusRaw !== "running") {
+    return { status: "stopped" };
+  }
+
   const normalizedResult = normalizeTaskResultCode(parsed.lastRunResult);
-  if (normalizedResult != null) {
-    if (RUNNING_RESULT_CODES.has(normalizedResult)) {
-      return { status: "running" };
-    }
+  const runningCodes = new Set(["0x41301"]);
+  if (normalizedResult && !runningCodes.has(normalizedResult)) {
     return {
       status: "stopped",
-      detail: `Task Last Run Result=${parsed.lastRunResult}; treating as not running.`,
+      detail: `Task reports Running but Last Run Result=${parsed.lastRunResult}; treating as stale runtime state.`,
     };
   }
-  if (parsed.status?.trim()) {
-    return { status: "unknown", detail: UNKNOWN_STATUS_DETAIL };
-  }
-  return { status: "unknown" };
+
+  return { status: "running" };
 }
 
 function buildTaskScript({
@@ -198,9 +197,6 @@ function buildTaskScript({
   if (environment) {
     for (const [key, value] of Object.entries(environment)) {
       if (!value) {
-        continue;
-      }
-      if (key.toUpperCase() === "PATH") {
         continue;
       }
       lines.push(renderCmdSetAssignment(key, value));
@@ -317,7 +313,7 @@ export async function stopScheduledTask({ stdout, env }: GatewayServiceControlAr
 export async function restartScheduledTask({
   stdout,
   env,
-}: GatewayServiceControlArgs): Promise<GatewayServiceRestartResult> {
+}: GatewayServiceControlArgs): Promise<void> {
   await assertSchtasksAvailable();
   const taskName = resolveTaskName(env ?? (process.env as GatewayServiceEnv));
   await execSchtasks(["/End", "/TN", taskName]);
@@ -326,7 +322,6 @@ export async function restartScheduledTask({
     throw new Error(`schtasks run failed: ${res.stderr || res.stdout}`.trim());
   }
   stdout.write(`${formatLine("Restarted Scheduled Task", taskName)}\n`);
-  return { outcome: "completed" };
 }
 
 export async function isScheduledTaskInstalled(args: GatewayServiceEnvArgs): Promise<boolean> {

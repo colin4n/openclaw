@@ -8,13 +8,11 @@ import type { AppViewState } from "./app-view-state.ts";
 import { loadAgentFileContent, loadAgentFiles, saveAgentFile } from "./controllers/agent-files.ts";
 import { loadAgentIdentities, loadAgentIdentity } from "./controllers/agent-identity.ts";
 import { loadAgentSkills } from "./controllers/agent-skills.ts";
-import { loadAgents, loadToolsCatalog, saveAgentsConfig } from "./controllers/agents.ts";
+import { loadAgents, loadToolsCatalog } from "./controllers/agents.ts";
 import { loadChannels } from "./controllers/channels.ts";
 import { loadChatHistory } from "./controllers/chat.ts";
 import {
   applyConfig,
-  ensureAgentConfigEntry,
-  findAgentConfigEntryIndex,
   loadConfig,
   runUpdate,
   saveConfig,
@@ -68,13 +66,7 @@ import {
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { icons } from "./icons.ts";
 import { normalizeBasePath, TAB_GROUPS, subtitleForTab, titleForTab } from "./navigation.ts";
-import {
-  resolveAgentConfig,
-  resolveConfiguredCronModelSuggestions,
-  resolveEffectiveModelFallbacks,
-  resolveModelPrimary,
-  sortLocaleStrings,
-} from "./views/agents-utils.ts";
+import { resolveConfiguredCronModelSuggestions, sortLocaleStrings } from "./views/agents-utils.ts";
 import { renderAgents } from "./views/agents.ts";
 import { renderChannels } from "./views/channels.ts";
 import { renderChat } from "./views/chat.ts";
@@ -174,11 +166,6 @@ export function renderApp(state: AppViewState) {
     state.agentsList?.defaultId ??
     state.agentsList?.agents?.[0]?.id ??
     null;
-  const getCurrentConfigValue = () =>
-    state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
-  const findAgentIndex = (agentId: string) =>
-    findAgentConfigEntryIndex(getCurrentConfigValue(), agentId);
-  const ensureAgentIndex = (agentId: string) => ensureAgentConfigEntry(state, agentId);
   const cronAgentSuggestions = sortLocaleStrings(
     new Set(
       [
@@ -676,8 +663,20 @@ export function renderApp(state: AppViewState) {
                   void saveAgentFile(state, resolvedAgentId, name, content);
                 },
                 onToolsProfileChange: (agentId, profile, clearAllow) => {
-                  const index =
-                    profile || clearAllow ? ensureAgentIndex(agentId) : findAgentIndex(agentId);
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
+                  );
                   if (index < 0) {
                     return;
                   }
@@ -692,10 +691,20 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 onToolsOverridesChange: (agentId, alsoAllow, deny) => {
-                  const index =
-                    alsoAllow.length > 0 || deny.length > 0
-                      ? ensureAgentIndex(agentId)
-                      : findAgentIndex(agentId);
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
+                  );
                   if (index < 0) {
                     return;
                   }
@@ -712,7 +721,7 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 onConfigReload: () => loadConfig(state),
-                onConfigSave: () => saveAgentsConfig(state),
+                onConfigSave: () => saveConfig(state),
                 onChannelsRefresh: () => loadChannels(state, false),
                 onCronRefresh: () => state.loadCron(),
                 onSkillsFilterChange: (next) => (state.skillsFilter = next),
@@ -722,15 +731,24 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 onAgentSkillToggle: (agentId, skillName, enabled) => {
-                  const index = ensureAgentIndex(agentId);
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
+                  );
                   if (index < 0) {
                     return;
                   }
-                  const list = (getCurrentConfigValue() as { agents?: { list?: unknown[] } } | null)
-                    ?.agents?.list;
-                  const entry = Array.isArray(list)
-                    ? (list[index] as { skills?: unknown })
-                    : undefined;
+                  const entry = list[index] as { skills?: unknown };
                   const normalizedSkill = skillName.trim();
                   if (!normalizedSkill) {
                     return;
@@ -738,7 +756,7 @@ export function renderApp(state: AppViewState) {
                   const allSkills =
                     state.agentSkillsReport?.skills?.map((skill) => skill.name).filter(Boolean) ??
                     [];
-                  const existing = Array.isArray(entry?.skills)
+                  const existing = Array.isArray(entry.skills)
                     ? entry.skills.map((name) => String(name).trim()).filter(Boolean)
                     : undefined;
                   const base = existing ?? allSkills;
@@ -751,34 +769,69 @@ export function renderApp(state: AppViewState) {
                   updateConfigFormValue(state, ["agents", "list", index, "skills"], [...next]);
                 },
                 onAgentSkillsClear: (agentId) => {
-                  const index = findAgentIndex(agentId);
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
+                  );
                   if (index < 0) {
                     return;
                   }
                   removeConfigFormValue(state, ["agents", "list", index, "skills"]);
                 },
                 onAgentSkillsDisableAll: (agentId) => {
-                  const index = ensureAgentIndex(agentId);
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
+                  );
                   if (index < 0) {
                     return;
                   }
                   updateConfigFormValue(state, ["agents", "list", index, "skills"], []);
                 },
                 onModelChange: (agentId, modelId) => {
-                  const index = modelId ? ensureAgentIndex(agentId) : findAgentIndex(agentId);
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
+                  );
                   if (index < 0) {
                     return;
                   }
-                  const list = (getCurrentConfigValue() as { agents?: { list?: unknown[] } } | null)
-                    ?.agents?.list;
                   const basePath = ["agents", "list", index, "model"];
                   if (!modelId) {
                     removeConfigFormValue(state, basePath);
                     return;
                   }
-                  const entry = Array.isArray(list)
-                    ? (list[index] as { model?: unknown })
-                    : undefined;
+                  const entry = list[index] as { model?: unknown };
                   const existing = entry?.model;
                   if (existing && typeof existing === "object" && !Array.isArray(existing)) {
                     const fallbacks = (existing as { fallbacks?: unknown }).fallbacks;
@@ -792,34 +845,27 @@ export function renderApp(state: AppViewState) {
                   }
                 },
                 onModelFallbacksChange: (agentId, fallbacks) => {
-                  const normalized = fallbacks.map((name) => name.trim()).filter(Boolean);
-                  const currentConfig = getCurrentConfigValue();
-                  const resolvedConfig = resolveAgentConfig(currentConfig, agentId);
-                  const effectivePrimary =
-                    resolveModelPrimary(resolvedConfig.entry?.model) ??
-                    resolveModelPrimary(resolvedConfig.defaults?.model);
-                  const effectiveFallbacks = resolveEffectiveModelFallbacks(
-                    resolvedConfig.entry?.model,
-                    resolvedConfig.defaults?.model,
+                  if (!configValue) {
+                    return;
+                  }
+                  const list = (configValue as { agents?: { list?: unknown[] } }).agents?.list;
+                  if (!Array.isArray(list)) {
+                    return;
+                  }
+                  const index = list.findIndex(
+                    (entry) =>
+                      entry &&
+                      typeof entry === "object" &&
+                      "id" in entry &&
+                      (entry as { id?: string }).id === agentId,
                   );
-                  const index =
-                    normalized.length > 0
-                      ? effectivePrimary
-                        ? ensureAgentIndex(agentId)
-                        : -1
-                      : (effectiveFallbacks?.length ?? 0) > 0 || findAgentIndex(agentId) >= 0
-                        ? ensureAgentIndex(agentId)
-                        : -1;
                   if (index < 0) {
                     return;
                   }
-                  const list = (getCurrentConfigValue() as { agents?: { list?: unknown[] } } | null)
-                    ?.agents?.list;
                   const basePath = ["agents", "list", index, "model"];
-                  const entry = Array.isArray(list)
-                    ? (list[index] as { model?: unknown })
-                    : undefined;
-                  const existing = entry?.model;
+                  const entry = list[index] as { model?: unknown };
+                  const normalized = fallbacks.map((name) => name.trim()).filter(Boolean);
+                  const existing = entry.model;
                   const resolvePrimary = () => {
                     if (typeof existing === "string") {
                       return existing.trim() || null;
@@ -833,7 +879,7 @@ export function renderApp(state: AppViewState) {
                     }
                     return null;
                   };
-                  const primary = resolvePrimary() ?? effectivePrimary;
+                  const primary = resolvePrimary();
                   if (normalized.length === 0) {
                     if (primary) {
                       updateConfigFormValue(state, basePath, primary);
@@ -842,10 +888,10 @@ export function renderApp(state: AppViewState) {
                     }
                     return;
                   }
-                  if (!primary) {
-                    return;
-                  }
-                  updateConfigFormValue(state, basePath, { primary, fallbacks: normalized });
+                  const next = primary
+                    ? { primary, fallbacks: normalized }
+                    : { fallbacks: normalized };
+                  updateConfigFormValue(state, basePath, next);
                 },
               })
             : nothing
@@ -983,7 +1029,6 @@ export function renderApp(state: AppViewState) {
                 assistantAvatarUrl: chatAvatarUrl,
                 messages: state.chatMessages,
                 toolMessages: state.chatToolMessages,
-                streamSegments: state.chatStreamSegments,
                 stream: state.chatStream,
                 streamStartedAt: state.chatStreamStartedAt,
                 draft: state.chatMessage,
@@ -1081,7 +1126,6 @@ export function renderApp(state: AppViewState) {
                 models: state.debugModels,
                 heartbeat: state.debugHeartbeat,
                 eventLog: state.eventLog,
-                methods: (state.hello?.features?.methods ?? []).toSorted(),
                 callMethod: state.debugCallMethod,
                 callParams: state.debugCallParams,
                 callResult: state.debugCallResult,

@@ -635,7 +635,7 @@ describe("callGateway password resolution", () => {
   const explicitAuthCases = [
     {
       label: "password",
-      authKey: "password", // pragma: allowlist secret
+      authKey: "password",
       envKey: "OPENCLAW_GATEWAY_PASSWORD",
       envValue: "from-env",
       configValue: "from-config",
@@ -643,7 +643,7 @@ describe("callGateway password resolution", () => {
     },
     {
       label: "token",
-      authKey: "token", // pragma: allowlist secret
+      authKey: "token",
       envKey: "OPENCLAW_GATEWAY_TOKEN",
       envValue: "env-token",
       configValue: "local-token",
@@ -655,7 +655,6 @@ describe("callGateway password resolution", () => {
     envSnapshot = captureEnv([
       "OPENCLAW_GATEWAY_PASSWORD",
       "OPENCLAW_GATEWAY_TOKEN",
-      "LOCAL_REMOTE_FALLBACK_TOKEN",
       "LOCAL_REF_PASSWORD",
       "REMOTE_REF_TOKEN",
       "REMOTE_REF_PASSWORD",
@@ -663,7 +662,6 @@ describe("callGateway password resolution", () => {
     resetGatewayCallMocks();
     delete process.env.OPENCLAW_GATEWAY_PASSWORD;
     delete process.env.OPENCLAW_GATEWAY_TOKEN;
-    delete process.env.LOCAL_REMOTE_FALLBACK_TOKEN;
     delete process.env.LOCAL_REF_PASSWORD;
     delete process.env.REMOTE_REF_TOKEN;
     delete process.env.REMOTE_REF_PASSWORD;
@@ -723,7 +721,7 @@ describe("callGateway password resolution", () => {
   });
 
   it("resolves gateway.auth.password SecretInput refs for gateway calls", async () => {
-    process.env.LOCAL_REF_PASSWORD = "resolved-local-ref-password"; // pragma: allowlist secret
+    process.env.LOCAL_REF_PASSWORD = "resolved-local-ref-password";
     loadConfig.mockReturnValue({
       gateway: {
         mode: "local",
@@ -789,54 +787,6 @@ describe("callGateway password resolution", () => {
     await callGateway({ method: "health" });
 
     expect(lastClientOptions?.token).toBe("token-auth");
-  });
-
-  it("resolves local password ref before unresolved local token ref can block auth", async () => {
-    process.env.LOCAL_FALLBACK_PASSWORD = "resolved-local-fallback-password"; // pragma: allowlist secret
-    loadConfig.mockReturnValue({
-      gateway: {
-        mode: "local",
-        bind: "loopback",
-        auth: {
-          token: { source: "env", provider: "default", id: "MISSING_LOCAL_REF_TOKEN" },
-          password: { source: "env", provider: "default", id: "LOCAL_FALLBACK_PASSWORD" },
-        },
-      },
-      secrets: {
-        providers: {
-          default: { source: "env" },
-        },
-      },
-    } as unknown as OpenClawConfig);
-
-    await callGateway({ method: "health" });
-
-    expect(lastClientOptions?.token).toBeUndefined();
-    expect(lastClientOptions?.password).toBe("resolved-local-fallback-password"); // pragma: allowlist secret
-  });
-
-  it("fails closed when unresolved local token SecretRef would otherwise fall back to remote token", async () => {
-    process.env.LOCAL_REMOTE_FALLBACK_TOKEN = "resolved-local-remote-fallback-token";
-    loadConfig.mockReturnValue({
-      gateway: {
-        mode: "local",
-        bind: "loopback",
-        auth: {
-          mode: "token",
-          token: { source: "env", provider: "default", id: "MISSING_LOCAL_REF_TOKEN" },
-        },
-        remote: {
-          token: { source: "env", provider: "default", id: "LOCAL_REMOTE_FALLBACK_TOKEN" },
-        },
-      },
-      secrets: {
-        providers: {
-          default: { source: "env" },
-        },
-      },
-    } as unknown as OpenClawConfig);
-
-    await expect(callGateway({ method: "health" })).rejects.toThrow("gateway.auth.token");
   });
 
   it.each(["none", "trusted-proxy"] as const)(
@@ -916,7 +866,7 @@ describe("callGateway password resolution", () => {
   });
 
   it("resolves gateway.remote.password SecretInput refs when remote password is required", async () => {
-    process.env.REMOTE_REF_PASSWORD = "resolved-remote-ref-password"; // pragma: allowlist secret
+    process.env.REMOTE_REF_PASSWORD = "resolved-remote-ref-password";
     loadConfig.mockReturnValue({
       gateway: {
         mode: "remote",
@@ -948,7 +898,7 @@ describe("callGateway password resolution", () => {
         remote: {
           url: "wss://remote.example:18789",
           token: { source: "env", provider: "default", id: "MISSING_REMOTE_TOKEN" },
-          password: "remote-password", // pragma: allowlist secret
+          password: "remote-password",
         },
       },
       secrets: {

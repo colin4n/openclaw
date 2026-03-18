@@ -27,6 +27,13 @@ export type PluginAutoEnableResult = {
   changes: string[];
 };
 
+const CHANNEL_PLUGIN_IDS = Array.from(
+  new Set([
+    ...listChatChannels().map((meta) => meta.id),
+    ...listChannelPluginCatalogEntries().map((entry) => entry.id),
+  ]),
+);
+
 const PROVIDER_PLUGIN_IDS: Array<{ pluginId: string; providerId: string }> = [
   { pluginId: "google-gemini-cli-auth", providerId: "google-gemini-cli" },
   { pluginId: "qwen-portal-auth", providerId: "qwen-portal" },
@@ -308,17 +315,8 @@ function resolvePluginIdForChannel(
   return channelToPluginId.get(channelId) ?? channelId;
 }
 
-function listKnownChannelPluginIds(env: NodeJS.ProcessEnv): string[] {
-  return Array.from(
-    new Set([
-      ...listChatChannels().map((meta) => meta.id),
-      ...listChannelPluginCatalogEntries({ env }).map((entry) => entry.id),
-    ]),
-  );
-}
-
-function collectCandidateChannelIds(cfg: OpenClawConfig, env: NodeJS.ProcessEnv): string[] {
-  const channelIds = new Set<string>(listKnownChannelPluginIds(env));
+function collectCandidateChannelIds(cfg: OpenClawConfig): string[] {
+  const channelIds = new Set<string>(CHANNEL_PLUGIN_IDS);
   const configuredChannels = cfg.channels as Record<string, unknown> | undefined;
   if (!configuredChannels || typeof configuredChannels !== "object") {
     return Array.from(channelIds);
@@ -341,7 +339,7 @@ function resolveConfiguredPlugins(
   const changes: PluginEnableChange[] = [];
   // Build reverse map: channel ID → plugin ID from installed plugin manifests.
   const channelToPluginId = buildChannelToPluginIdMap(registry);
-  for (const channelId of collectCandidateChannelIds(cfg, env)) {
+  for (const channelId of collectCandidateChannelIds(cfg)) {
     const pluginId = resolvePluginIdForChannel(channelId, channelToPluginId);
     if (isChannelConfigured(cfg, channelId, env)) {
       changes.push({ pluginId, reason: `${channelId} configured` });
@@ -392,12 +390,12 @@ function isPluginDenied(cfg: OpenClawConfig, pluginId: string): boolean {
   return Array.isArray(deny) && deny.includes(pluginId);
 }
 
-function resolvePreferredOverIds(pluginId: string, env: NodeJS.ProcessEnv): string[] {
+function resolvePreferredOverIds(pluginId: string): string[] {
   const normalized = normalizeChatChannelId(pluginId);
   if (normalized) {
     return getChatChannelMeta(normalized).preferOver ?? [];
   }
-  const catalogEntry = getChannelPluginCatalogEntry(pluginId, { env });
+  const catalogEntry = getChannelPluginCatalogEntry(pluginId);
   return catalogEntry?.meta.preferOver ?? [];
 }
 
@@ -405,7 +403,6 @@ function shouldSkipPreferredPluginAutoEnable(
   cfg: OpenClawConfig,
   entry: PluginEnableChange,
   configured: PluginEnableChange[],
-  env: NodeJS.ProcessEnv,
 ): boolean {
   for (const other of configured) {
     if (other.pluginId === entry.pluginId) {
@@ -417,7 +414,7 @@ function shouldSkipPreferredPluginAutoEnable(
     if (isPluginExplicitlyDisabled(cfg, other.pluginId)) {
       continue;
     }
-    const preferOver = resolvePreferredOverIds(other.pluginId, env);
+    const preferOver = resolvePreferredOverIds(other.pluginId);
     if (preferOver.includes(entry.pluginId)) {
       return true;
     }
@@ -480,8 +477,7 @@ export function applyPluginAutoEnable(params: {
   manifestRegistry?: PluginManifestRegistry;
 }): PluginAutoEnableResult {
   const env = params.env ?? process.env;
-  const registry =
-    params.manifestRegistry ?? loadPluginManifestRegistry({ config: params.config, env });
+  const registry = params.manifestRegistry ?? loadPluginManifestRegistry({ config: params.config });
   const configured = resolveConfiguredPlugins(params.config, env, registry);
   if (configured.length === 0) {
     return { config: params.config, changes: [] };
@@ -502,7 +498,7 @@ export function applyPluginAutoEnable(params: {
     if (isPluginExplicitlyDisabled(next, entry.pluginId)) {
       continue;
     }
-    if (shouldSkipPreferredPluginAutoEnable(next, entry, configured, env)) {
+    if (shouldSkipPreferredPluginAutoEnable(next, entry, configured)) {
       continue;
     }
     const allow = next.plugins?.allow;

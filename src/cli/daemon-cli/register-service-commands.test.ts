@@ -39,37 +39,34 @@ describe("addGatewayServiceCommands", () => {
     runDaemonUninstall.mockClear();
   });
 
-  it.each([
-    {
-      name: "forwards install option collisions from parent gateway command",
-      argv: ["install", "--force", "--port", "19000", "--token", "tok_test"],
-      assert: () => {
-        expect(runDaemonInstall).toHaveBeenCalledWith(
-          expect.objectContaining({
-            force: true,
-            port: "19000",
-            token: "tok_test",
-          }),
-        );
-      },
-    },
-    {
-      name: "forwards status auth collisions from parent gateway command",
-      argv: ["status", "--token", "tok_status", "--password", "pw_status"],
-      assert: () => {
-        expect(runDaemonStatus).toHaveBeenCalledWith(
-          expect.objectContaining({
-            rpc: expect.objectContaining({
-              token: "tok_status",
-              password: "pw_status", // pragma: allowlist secret
-            }),
-          }),
-        );
-      },
-    },
-  ])("$name", async ({ argv, assert }) => {
+  it("forwards install option collisions from parent gateway command", async () => {
     const gateway = createGatewayParentLikeCommand();
-    await gateway.parseAsync(argv, { from: "user" });
-    assert();
+    await gateway.parseAsync(["install", "--force", "--port", "19000", "--token", "tok_test"], {
+      from: "user",
+    });
+
+    expect(runDaemonInstall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        force: true,
+        port: "19000",
+        token: "tok_test",
+      }),
+    );
+  });
+
+  it("forwards status auth collisions from parent gateway command", async () => {
+    const gateway = createGatewayParentLikeCommand();
+    await gateway.parseAsync(["status", "--token", "tok_status", "--password", "pw_status"], {
+      from: "user",
+    });
+
+    expect(runDaemonStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rpc: expect.objectContaining({
+          token: "tok_status",
+          password: "pw_status",
+        }),
+      }),
+    );
   });
 });

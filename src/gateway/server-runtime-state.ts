@@ -22,7 +22,7 @@ import {
   createChatRunState,
   createToolEventRecipientRegistry,
 } from "./server-chat.js";
-import { MAX_PREAUTH_PAYLOAD_BYTES } from "./server-constants.js";
+import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
 import { attachGatewayUpgradeHandler, createGatewayHttpServer } from "./server-http.js";
 import type { DedupeEntry } from "./server-shared.js";
 import { createGatewayHooksRequestHandler } from "./server/hooks.js";
@@ -32,7 +32,6 @@ import {
   shouldEnforceGatewayAuthForPluginPath,
   type PluginRoutePathContext,
 } from "./server/plugins-http.js";
-import type { ReadinessChecker } from "./server/readiness.js";
 import type { GatewayTlsRuntime } from "./server/tls.js";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
@@ -62,7 +61,6 @@ export async function createGatewayRuntimeState(params: {
   log: { info: (msg: string) => void; warn: (msg: string) => void };
   logHooks: ReturnType<typeof createSubsystemLogger>;
   logPlugins: ReturnType<typeof createSubsystemLogger>;
-  getReadiness?: ReadinessChecker;
 }): Promise<{
   canvasHost: CanvasHostHandler | null;
   httpServer: HttpServer;
@@ -158,7 +156,6 @@ export async function createGatewayRuntimeState(params: {
       shouldEnforcePluginGatewayAuth,
       resolvedAuth: params.resolvedAuth,
       rateLimiter: params.rateLimiter,
-      getReadiness: params.getReadiness,
       tlsOptions: params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
     });
     try {
@@ -185,7 +182,7 @@ export async function createGatewayRuntimeState(params: {
 
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: MAX_PREAUTH_PAYLOAD_BYTES,
+    maxPayload: MAX_PAYLOAD_BYTES,
   });
   for (const server of httpServers) {
     attachGatewayUpgradeHandler({

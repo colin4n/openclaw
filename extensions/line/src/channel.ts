@@ -1,17 +1,11 @@
 import {
-  collectAllowlistProviderRestrictSendersWarnings,
-  createScopedAccountConfigAccessors,
-  createScopedChannelConfigBase,
-  createScopedDmSecurityResolver,
-} from "openclaw/plugin-sdk/compat";
-import {
   buildChannelConfigSchema,
-  buildComputedAccountStatusSnapshot,
   buildTokenChannelStatusSummary,
-  clearAccountEntryFields,
   DEFAULT_ACCOUNT_ID,
   LineConfigSchema,
   processLineMessage,
+  resolveAllowlistProviderRuntimeGroupPolicy,
+  resolveDefaultGroupPolicy,
   type ChannelPlugin,
   type ChannelStatusIssue,
   type OpenClawConfig,
@@ -32,71 +26,6 @@ const meta = {
   blurb: "LINE Messaging API bot for Japan/Taiwan/Thailand markets.",
   systemImage: "message.fill",
 };
-
-const lineConfigAccessors = createScopedAccountConfigAccessors({
-  resolveAccount: ({ cfg, accountId }) =>
-    getLineRuntime().channel.line.resolveLineAccount({ cfg, accountId: accountId ?? undefined }),
-  resolveAllowFrom: (account: ResolvedLineAccount) => account.config.allowFrom,
-  formatAllowFrom: (allowFrom) =>
-    allowFrom
-      .map((entry) => String(entry).trim())
-      .filter(Boolean)
-      .map((entry) => entry.replace(/^line:(?:user:)?/i, "")),
-});
-
-const lineConfigBase = createScopedChannelConfigBase<ResolvedLineAccount, OpenClawConfig>({
-  sectionKey: "line",
-  listAccountIds: (cfg) => getLineRuntime().channel.line.listLineAccountIds(cfg),
-  resolveAccount: (cfg, accountId) =>
-    getLineRuntime().channel.line.resolveLineAccount({ cfg, accountId: accountId ?? undefined }),
-  defaultAccountId: (cfg) => getLineRuntime().channel.line.resolveDefaultLineAccountId(cfg),
-  clearBaseFields: ["channelSecret", "tokenFile", "secretFile"],
-});
-
-const resolveLineDmPolicy = createScopedDmSecurityResolver<ResolvedLineAccount>({
-  channelKey: "line",
-  resolvePolicy: (account) => account.config.dmPolicy,
-  resolveAllowFrom: (account) => account.config.allowFrom,
-  policyPathSuffix: "dmPolicy",
-  approveHint: "openclaw pairing approve line <code>",
-  normalizeEntry: (raw) => raw.replace(/^line:(?:user:)?/i, ""),
-});
-
-function patchLineAccountConfig(
-  cfg: OpenClawConfig,
-  lineConfig: LineConfig,
-  accountId: string,
-  patch: Record<string, unknown>,
-): OpenClawConfig {
-  if (accountId === DEFAULT_ACCOUNT_ID) {
-    return {
-      ...cfg,
-      channels: {
-        ...cfg.channels,
-        line: {
-          ...lineConfig,
-          ...patch,
-        },
-      },
-    };
-  }
-  return {
-    ...cfg,
-    channels: {
-      ...cfg.channels,
-      line: {
-        ...lineConfig,
-        accounts: {
-          ...lineConfig.accounts,
-          [accountId]: {
-            ...lineConfig.accounts?.[accountId],
-            ...patch,
-          },
-        },
-      },
-    },
-  };
-}
 
 export const linePlugin: ChannelPlugin<ResolvedLineAccount> = {
   id: "line",
@@ -132,7 +61,67 @@ export const linePlugin: ChannelPlugin<ResolvedLineAccount> = {
   reload: { configPrefixes: ["channels.line"] },
   configSchema: buildChannelConfigSchema(LineConfigSchema),
   config: {
-    ...lineConfigBase,
+    listAccountIds: (cfg) => getLineRuntime().channel.line.listLineAccountIds(cfg),
+    resolveAccount: (cfg, accountId) =>
+      getLineRuntime().channel.line.resolveLineAccount({ cfg, accountId: accountId ?? undefined }),
+    defaultAccountId: (cfg) => getLineRuntime().channel.line.resolveDefaultLineAccountId(cfg),
+    setAccountEnabled: ({ cfg, accountId, enabled }) => {
+      const lineConfig = (cfg.channels?.line ?? {}) as LineConfig;
+      if (accountId === DEFAULT_ACCOUNT_ID) {
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            line: {
+              ...lineConfig,
+              enabled,
+            },
+          },
+        };
+      }
+      return {
+        ...cfg,
+        channels: {
+          ...cfg.channels,
+          line: {
+            ...lineConfig,
+            accounts: {
+              ...lineConfig.accounts,
+              [accountId]: {
+                ...lineConfig.accounts?.[accountId],
+                enabled,
+              },
+            },
+          },
+        },
+      };
+    },
+    deleteAccount: ({ cfg, accountId }) => {
+      const lineConfig = (cfg.channels?.line ?? {}) as LineConfig;
+      if (accountId === DEFAULT_ACCOUNT_ID) {
+        // oxlint-disable-next-line no-unused-vars
+        const { channelSecret, tokenFile, secretFile, ...rest } = lineConfig;
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            line: rest,
+          },
+        };
+      }
+      const accounts = { ...lineConfig.accounts };
+      delete accounts[accountId];
+      return {
+        ...cfg,
+        channels: {
+          ...cfg.channels,
+          line: {
+            ...lineConfig,
+            accounts: Object.keys(accounts).length > 0 ? accounts : undefined,
+          },
+        },
+      };
+    },
     isConfigured: (account) =>
       Boolean(account.channelAccessToken?.trim() && account.channelSecret?.trim()),
     describeAccount: (account) => ({
@@ -142,21 +131,51 @@ export const linePlugin: ChannelPlugin<ResolvedLineAccount> = {
       configured: Boolean(account.channelAccessToken?.trim() && account.channelSecret?.trim()),
       tokenSource: account.tokenSource ?? undefined,
     }),
-    ...lineConfigAccessors,
+    resolveAllowFrom: ({ cfg, accountId }) =>
+      (
+        getLineRuntime().channel.line.resolveLineAccount({ cfg, accountId: accountId ?? undefined })
+          .config.allowFrom ?? []
+      ).map((entry) => String(entry)),
+    formatAllowFrom: ({ allowFrom }) =>
+      allowFrom
+        .map((entry) => String(entry).trim())
+        .filter(Boolean)
+        .map((entry) => {
+          // LINE sender IDs are case-sensitive; keep original casing.
+          return entry.replace(/^line:(?:user:)?/i, "");
+        }),
   },
   security: {
-    resolveDmPolicy: resolveLineDmPolicy,
+    resolveDmPolicy: ({ cfg, accountId, account }) => {
+      const resolvedAccountId = accountId ?? account.accountId ?? DEFAULT_ACCOUNT_ID;
+      const useAccountPath = Boolean(
+        (cfg.channels?.line as LineConfig | undefined)?.accounts?.[resolvedAccountId],
+      );
+      const basePath = useAccountPath
+        ? `channels.line.accounts.${resolvedAccountId}.`
+        : "channels.line.";
+      return {
+        policy: account.config.dmPolicy ?? "pairing",
+        allowFrom: account.config.allowFrom ?? [],
+        policyPath: `${basePath}dmPolicy`,
+        allowFromPath: basePath,
+        approveHint: "openclaw pairing approve line <code>",
+        normalizeEntry: (raw) => raw.replace(/^line:(?:user:)?/i, ""),
+      };
+    },
     collectWarnings: ({ account, cfg }) => {
-      return collectAllowlistProviderRestrictSendersWarnings({
-        cfg,
+      const defaultGroupPolicy = resolveDefaultGroupPolicy(cfg);
+      const { groupPolicy } = resolveAllowlistProviderRuntimeGroupPolicy({
         providerConfigPresent: cfg.channels?.line !== undefined,
-        configuredGroupPolicy: account.config.groupPolicy,
-        surface: "LINE groups",
-        openScope: "any member in groups",
-        groupPolicyPath: "channels.line.groupPolicy",
-        groupAllowFromPath: "channels.line.groupAllowFrom",
-        mentionGated: false,
+        groupPolicy: account.config.groupPolicy,
+        defaultGroupPolicy,
       });
+      if (groupPolicy !== "open") {
+        return [];
+      }
+      return [
+        `- LINE groups: groupPolicy="open" allows any member in groups to trigger. Set channels.line.groupPolicy="allowlist" + channels.line.groupAllowFrom to restrict senders.`,
+      ];
     },
   },
   groups: {
@@ -205,7 +224,34 @@ export const linePlugin: ChannelPlugin<ResolvedLineAccount> = {
       getLineRuntime().channel.line.normalizeAccountId(accountId),
     applyAccountName: ({ cfg, accountId, name }) => {
       const lineConfig = (cfg.channels?.line ?? {}) as LineConfig;
-      return patchLineAccountConfig(cfg, lineConfig, accountId, { name });
+      if (accountId === DEFAULT_ACCOUNT_ID) {
+        return {
+          ...cfg,
+          channels: {
+            ...cfg.channels,
+            line: {
+              ...lineConfig,
+              name,
+            },
+          },
+        };
+      }
+      return {
+        ...cfg,
+        channels: {
+          ...cfg.channels,
+          line: {
+            ...lineConfig,
+            accounts: {
+              ...lineConfig.accounts,
+              [accountId]: {
+                ...lineConfig.accounts?.[accountId],
+                name,
+              },
+            },
+          },
+        },
+      };
     },
     validateInput: ({ accountId, input }) => {
       const typedInput = input as {
@@ -569,18 +615,20 @@ export const linePlugin: ChannelPlugin<ResolvedLineAccount> = {
       const configured = Boolean(
         account.channelAccessToken?.trim() && account.channelSecret?.trim(),
       );
-      const base = buildComputedAccountStatusSnapshot({
+      return {
         accountId: account.accountId,
         name: account.name,
         enabled: account.enabled,
         configured,
-        runtime,
-        probe,
-      });
-      return {
-        ...base,
         tokenSource: account.tokenSource,
+        running: runtime?.running ?? false,
+        lastStartAt: runtime?.lastStartAt ?? null,
+        lastStopAt: runtime?.lastStopAt ?? null,
+        lastError: runtime?.lastError ?? null,
         mode: "webhook",
+        probe,
+        lastInboundAt: runtime?.lastInboundAt ?? null,
+        lastOutboundAt: runtime?.lastOutboundAt ?? null,
       };
     },
   },
@@ -651,21 +699,39 @@ export const linePlugin: ChannelPlugin<ResolvedLineAccount> = {
         }
       }
 
-      const accountCleanup = clearAccountEntryFields({
-        accounts: nextLine.accounts,
-        accountId,
-        fields: ["channelAccessToken", "channelSecret", "tokenFile", "secretFile"],
-        markClearedOnFieldPresence: true,
-      });
-      if (accountCleanup.changed) {
-        changed = true;
-        if (accountCleanup.cleared) {
-          cleared = true;
+      const accounts = nextLine.accounts ? { ...nextLine.accounts } : undefined;
+      if (accounts && accountId in accounts) {
+        const entry = accounts[accountId];
+        if (entry && typeof entry === "object") {
+          const nextEntry = { ...entry } as Record<string, unknown>;
+          if (
+            "channelAccessToken" in nextEntry ||
+            "channelSecret" in nextEntry ||
+            "tokenFile" in nextEntry ||
+            "secretFile" in nextEntry
+          ) {
+            cleared = true;
+            delete nextEntry.channelAccessToken;
+            delete nextEntry.channelSecret;
+            delete nextEntry.tokenFile;
+            delete nextEntry.secretFile;
+            changed = true;
+          }
+          if (Object.keys(nextEntry).length === 0) {
+            delete accounts[accountId];
+            changed = true;
+          } else {
+            accounts[accountId] = nextEntry as typeof entry;
+          }
         }
-        if (accountCleanup.nextAccounts) {
-          nextLine.accounts = accountCleanup.nextAccounts;
-        } else {
+      }
+
+      if (accounts) {
+        if (Object.keys(accounts).length === 0) {
           delete nextLine.accounts;
+          changed = true;
+        } else {
+          nextLine.accounts = accounts;
         }
       }
 

@@ -37,16 +37,12 @@ describe("config plugin validation", () => {
   let badPluginDir = "";
   let enumPluginDir = "";
   let bluebubblesPluginDir = "";
-  let voiceCallSchemaPluginDir = "";
-  const suiteEnv = () =>
-    ({
-      ...process.env,
-      OPENCLAW_STATE_DIR: path.join(suiteHome, ".openclaw"),
-      OPENCLAW_PLUGIN_MANIFEST_CACHE_MS: "10000",
-    }) satisfies NodeJS.ProcessEnv;
+  const envSnapshot = {
+    OPENCLAW_STATE_DIR: process.env.OPENCLAW_STATE_DIR,
+    OPENCLAW_PLUGIN_MANIFEST_CACHE_MS: process.env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS,
+  };
 
-  const validateInSuite = (raw: unknown) =>
-    validateConfigObjectWithPlugins(raw, { env: suiteEnv() });
+  const validateInSuite = (raw: unknown) => validateConfigObjectWithPlugins(raw);
 
   beforeAll(async () => {
     fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-config-plugin-validation-"));
@@ -87,31 +83,15 @@ describe("config plugin validation", () => {
       channels: ["bluebubbles"],
       schema: { type: "object" },
     });
-    voiceCallSchemaPluginDir = path.join(suiteHome, "voice-call-schema-plugin");
-    const voiceCallManifestPath = path.join(
-      process.cwd(),
-      "extensions",
-      "voice-call",
-      "openclaw.plugin.json",
-    );
-    const voiceCallManifest = JSON.parse(await fs.readFile(voiceCallManifestPath, "utf-8")) as {
-      configSchema?: Record<string, unknown>;
-    };
-    if (!voiceCallManifest.configSchema) {
-      throw new Error("voice-call manifest missing configSchema");
-    }
-    await writePluginFixture({
-      dir: voiceCallSchemaPluginDir,
-      id: "voice-call-schema-fixture",
-      schema: voiceCallManifest.configSchema,
-    });
+    process.env.OPENCLAW_STATE_DIR = path.join(suiteHome, ".openclaw");
+    process.env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS = "10000";
     clearPluginManifestRegistryCache();
     // Warm the plugin manifest cache once so path-based validations can reuse
     // parsed manifests across test cases.
     validateInSuite({
       plugins: {
         enabled: false,
-        load: { paths: [badPluginDir, bluebubblesPluginDir, voiceCallSchemaPluginDir] },
+        load: { paths: [badPluginDir, bluebubblesPluginDir] },
       },
     });
   });
@@ -119,6 +99,16 @@ describe("config plugin validation", () => {
   afterAll(async () => {
     await fs.rm(fixtureRoot, { recursive: true, force: true });
     clearPluginManifestRegistryCache();
+    if (envSnapshot.OPENCLAW_STATE_DIR === undefined) {
+      delete process.env.OPENCLAW_STATE_DIR;
+    } else {
+      process.env.OPENCLAW_STATE_DIR = envSnapshot.OPENCLAW_STATE_DIR;
+    }
+    if (envSnapshot.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS === undefined) {
+      delete process.env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS;
+    } else {
+      process.env.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS = envSnapshot.OPENCLAW_PLUGIN_MANIFEST_CACHE_MS;
+    }
   });
 
   it("reports missing plugin refs across load paths, entries, and allowlist surfaces", async () => {
@@ -237,62 +227,6 @@ describe("config plugin validation", () => {
       expect(issue?.allowedValues).toEqual(["markdown", "html"]);
       expect(issue?.allowedValuesHiddenCount).toBe(0);
     }
-  });
-
-  it("accepts voice-call webhookSecurity and streaming guard config fields", async () => {
-    const res = validateInSuite({
-      agents: { list: [{ id: "pi" }] },
-      plugins: {
-        enabled: true,
-        load: { paths: [voiceCallSchemaPluginDir] },
-        entries: {
-          "voice-call-schema-fixture": {
-            config: {
-              provider: "twilio",
-              webhookSecurity: {
-                allowedHosts: ["voice.example.com"],
-                trustForwardingHeaders: false,
-                trustedProxyIPs: ["127.0.0.1"],
-              },
-              streaming: {
-                enabled: true,
-                preStartTimeoutMs: 5000,
-                maxPendingConnections: 16,
-                maxPendingConnectionsPerIp: 4,
-                maxConnections: 64,
-              },
-              staleCallReaperSeconds: 180,
-            },
-          },
-        },
-      },
-    });
-    expect(res.ok).toBe(true);
-  });
-
-  it("accepts voice-call OpenAI TTS speed, instructions, and baseUrl config fields", async () => {
-    const res = validateInSuite({
-      agents: { list: [{ id: "pi" }] },
-      plugins: {
-        enabled: true,
-        load: { paths: [voiceCallSchemaPluginDir] },
-        entries: {
-          "voice-call-schema-fixture": {
-            config: {
-              tts: {
-                openai: {
-                  baseUrl: "http://localhost:8880/v1",
-                  voice: "alloy",
-                  speed: 1.5,
-                  instructions: "Speak in a cheerful tone",
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    expect(res.ok).toBe(true);
   });
 
   it("accepts known plugin ids and valid channel/heartbeat enums", async () => {

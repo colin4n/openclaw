@@ -24,14 +24,14 @@ import { botNames, botOpenIds } from "./monitor.state.js";
 import { monitorWebhook, monitorWebSocket } from "./monitor.transport.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { getMessageFeishu } from "./send.js";
-import type { FeishuChatType, ResolvedFeishuAccount } from "./types.js";
+import type { ResolvedFeishuAccount } from "./types.js";
 
 const FEISHU_REACTION_VERIFY_TIMEOUT_MS = 1_500;
 
 export type FeishuReactionCreatedEvent = {
   message_id: string;
   chat_id?: string;
-  chat_type?: string;
+  chat_type?: "p2p" | "group" | "private";
   reaction_type?: { emoji_type?: string };
   operator_type?: string;
   user_id?: { open_id?: string };
@@ -105,19 +105,10 @@ export async function resolveReactionSyntheticEvent(
     return null;
   }
 
-  const fallbackChatType = reactedMsg.chatType;
-  const normalizedEventChatType = normalizeFeishuChatType(event.chat_type);
-  const resolvedChatType = normalizedEventChatType ?? fallbackChatType;
-  if (!resolvedChatType) {
-    logger?.(
-      `feishu[${accountId}]: skipping reaction ${emoji} on ${messageId} without chat type context`,
-    );
-    return null;
-  }
-
   const syntheticChatIdRaw = event.chat_id ?? reactedMsg.chatId;
   const syntheticChatId = syntheticChatIdRaw?.trim() ? syntheticChatIdRaw : `p2p:${senderId}`;
-  const syntheticChatType: FeishuChatType = resolvedChatType;
+  const syntheticChatType: "p2p" | "group" | "private" =
+    event.chat_type === "group" ? "group" : "p2p";
   return {
     sender: {
       sender_id: { open_id: senderId },
@@ -133,10 +124,6 @@ export async function resolveReactionSyntheticEvent(
       }),
     },
   };
-}
-
-function normalizeFeishuChatType(value: unknown): FeishuChatType | undefined {
-  return value === "group" || value === "private" || value === "p2p" ? value : undefined;
 }
 
 type RegisterEventHandlersContext = {
@@ -533,9 +520,6 @@ export async function monitorSingleAccount(params: MonitorSingleAccountParams): 
   const connectionMode = account.config.connectionMode ?? "websocket";
   if (connectionMode === "webhook" && !account.verificationToken?.trim()) {
     throw new Error(`Feishu account "${accountId}" webhook mode requires verificationToken`);
-  }
-  if (connectionMode === "webhook" && !account.encryptKey?.trim()) {
-    throw new Error(`Feishu account "${accountId}" webhook mode requires encryptKey`);
   }
 
   const warmupCount = await warmupDedupFromDisk(accountId, log);

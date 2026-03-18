@@ -24,7 +24,6 @@ import type {
   GatewayServiceEnvArgs,
   GatewayServiceInstallArgs,
   GatewayServiceManageArgs,
-  GatewayServiceRestartResult,
 } from "./service-types.js";
 import {
   installSystemdService,
@@ -42,7 +41,6 @@ export type {
   GatewayServiceEnvArgs,
   GatewayServiceInstallArgs,
   GatewayServiceManageArgs,
-  GatewayServiceRestartResult,
 } from "./service-types.js";
 
 function ignoreInstallResult(
@@ -60,87 +58,57 @@ export type GatewayService = {
   install: (args: GatewayServiceInstallArgs) => Promise<void>;
   uninstall: (args: GatewayServiceManageArgs) => Promise<void>;
   stop: (args: GatewayServiceControlArgs) => Promise<void>;
-  restart: (args: GatewayServiceControlArgs) => Promise<GatewayServiceRestartResult>;
+  restart: (args: GatewayServiceControlArgs) => Promise<void>;
   isLoaded: (args: GatewayServiceEnvArgs) => Promise<boolean>;
   readCommand: (env: GatewayServiceEnv) => Promise<GatewayServiceCommandConfig | null>;
   readRuntime: (env: GatewayServiceEnv) => Promise<GatewayServiceRuntime>;
 };
 
-export function describeGatewayServiceRestart(
-  serviceNoun: string,
-  result: GatewayServiceRestartResult,
-): {
-  scheduled: boolean;
-  daemonActionResult: "restarted" | "scheduled";
-  message: string;
-  progressMessage: string;
-} {
-  if (result.outcome === "scheduled") {
+export function resolveGatewayService(): GatewayService {
+  if (process.platform === "darwin") {
     return {
-      scheduled: true,
-      daemonActionResult: "scheduled",
-      message: `restart scheduled, ${serviceNoun.toLowerCase()} will restart momentarily`,
-      progressMessage: `${serviceNoun} service restart scheduled.`,
+      label: "LaunchAgent",
+      loadedText: "loaded",
+      notLoadedText: "not loaded",
+      install: ignoreInstallResult(installLaunchAgent),
+      uninstall: uninstallLaunchAgent,
+      stop: stopLaunchAgent,
+      restart: restartLaunchAgent,
+      isLoaded: isLaunchAgentLoaded,
+      readCommand: readLaunchAgentProgramArguments,
+      readRuntime: readLaunchAgentRuntime,
     };
   }
-  return {
-    scheduled: false,
-    daemonActionResult: "restarted",
-    message: `${serviceNoun} service restarted.`,
-    progressMessage: `${serviceNoun} service restarted.`,
-  };
-}
 
-type SupportedGatewayServicePlatform = "darwin" | "linux" | "win32";
-
-const GATEWAY_SERVICE_REGISTRY: Record<SupportedGatewayServicePlatform, GatewayService> = {
-  darwin: {
-    label: "LaunchAgent",
-    loadedText: "loaded",
-    notLoadedText: "not loaded",
-    install: ignoreInstallResult(installLaunchAgent),
-    uninstall: uninstallLaunchAgent,
-    stop: stopLaunchAgent,
-    restart: restartLaunchAgent,
-    isLoaded: isLaunchAgentLoaded,
-    readCommand: readLaunchAgentProgramArguments,
-    readRuntime: readLaunchAgentRuntime,
-  },
-  linux: {
-    label: "systemd",
-    loadedText: "enabled",
-    notLoadedText: "disabled",
-    install: ignoreInstallResult(installSystemdService),
-    uninstall: uninstallSystemdService,
-    stop: stopSystemdService,
-    restart: restartSystemdService,
-    isLoaded: isSystemdServiceEnabled,
-    readCommand: readSystemdServiceExecStart,
-    readRuntime: readSystemdServiceRuntime,
-  },
-  win32: {
-    label: "Scheduled Task",
-    loadedText: "registered",
-    notLoadedText: "missing",
-    install: ignoreInstallResult(installScheduledTask),
-    uninstall: uninstallScheduledTask,
-    stop: stopScheduledTask,
-    restart: restartScheduledTask,
-    isLoaded: isScheduledTaskInstalled,
-    readCommand: readScheduledTaskCommand,
-    readRuntime: readScheduledTaskRuntime,
-  },
-};
-
-function isSupportedGatewayServicePlatform(
-  platform: NodeJS.Platform,
-): platform is SupportedGatewayServicePlatform {
-  return Object.hasOwn(GATEWAY_SERVICE_REGISTRY, platform);
-}
-
-export function resolveGatewayService(): GatewayService {
-  if (isSupportedGatewayServicePlatform(process.platform)) {
-    return GATEWAY_SERVICE_REGISTRY[process.platform];
+  if (process.platform === "linux") {
+    return {
+      label: "systemd",
+      loadedText: "enabled",
+      notLoadedText: "disabled",
+      install: ignoreInstallResult(installSystemdService),
+      uninstall: uninstallSystemdService,
+      stop: stopSystemdService,
+      restart: restartSystemdService,
+      isLoaded: isSystemdServiceEnabled,
+      readCommand: readSystemdServiceExecStart,
+      readRuntime: readSystemdServiceRuntime,
+    };
   }
+
+  if (process.platform === "win32") {
+    return {
+      label: "Scheduled Task",
+      loadedText: "registered",
+      notLoadedText: "missing",
+      install: ignoreInstallResult(installScheduledTask),
+      uninstall: uninstallScheduledTask,
+      stop: stopScheduledTask,
+      restart: restartScheduledTask,
+      isLoaded: isScheduledTaskInstalled,
+      readCommand: readScheduledTaskCommand,
+      readRuntime: readScheduledTaskRuntime,
+    };
+  }
+
   throw new Error(`Gateway service install not supported on ${process.platform}`);
 }

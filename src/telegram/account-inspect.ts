@@ -1,19 +1,11 @@
+import fs from "node:fs";
 import type { OpenClawConfig } from "../config/config.js";
-import {
-  coerceSecretRef,
-  hasConfiguredSecretInput,
-  normalizeSecretInputString,
-} from "../config/types.secrets.js";
+import { hasConfiguredSecretInput, normalizeSecretInputString } from "../config/types.secrets.js";
 import type { TelegramAccountConfig } from "../config/types.telegram.js";
-import { tryReadSecretFileSync } from "../infra/secret-file.js";
 import { resolveAccountWithDefaultFallback } from "../plugin-sdk/account-resolution.js";
+import { resolveAccountEntry } from "../routing/account-lookup.js";
 import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "../routing/session-key.js";
-import { resolveDefaultSecretProviderAlias } from "../secrets/ref-contract.js";
-import {
-  mergeTelegramAccountConfig,
-  resolveDefaultTelegramAccountId,
-  resolveTelegramAccountConfig,
-} from "./accounts.js";
+import { resolveDefaultTelegramAccountId } from "./accounts.js";
 
 export type TelegramCredentialStatus = "available" | "configured_unavailable" | "missing";
 
@@ -28,6 +20,31 @@ export type InspectedTelegramAccount = {
   config: TelegramAccountConfig;
 };
 
+function resolveTelegramAccountConfig(
+  cfg: OpenClawConfig,
+  accountId: string,
+): TelegramAccountConfig | undefined {
+  const normalized = normalizeAccountId(accountId);
+  return resolveAccountEntry(cfg.channels?.telegram?.accounts, normalized);
+}
+
+function mergeTelegramAccountConfig(cfg: OpenClawConfig, accountId: string): TelegramAccountConfig {
+  const {
+    accounts: _ignored,
+    defaultAccount: _ignoredDefaultAccount,
+    groups: channelGroups,
+    ...base
+  } = (cfg.channels?.telegram ?? {}) as TelegramAccountConfig & {
+    accounts?: unknown;
+    defaultAccount?: unknown;
+  };
+  const account = resolveTelegramAccountConfig(cfg, accountId) ?? {};
+  const configuredAccountIds = Object.keys(cfg.channels?.telegram?.accounts ?? {});
+  const isMultiAccount = configuredAccountIds.length > 1;
+  const groups = account.groups ?? (isMultiAccount ? undefined : channelGroups);
+  return { ...base, ...account, groups };
+}
+
 function inspectTokenFile(pathValue: unknown): {
   token: string;
   tokenSource: "tokenFile" | "none";
@@ -37,68 +54,35 @@ function inspectTokenFile(pathValue: unknown): {
   if (!tokenFile) {
     return null;
   }
-  const token = tryReadSecretFileSync(tokenFile, "Telegram bot token", {
-    rejectSymlink: true,
-  });
-  return {
-    token: token ?? "",
-    tokenSource: "tokenFile",
-    tokenStatus: token ? "available" : "configured_unavailable",
-  };
-}
-
-function canResolveEnvSecretRefInReadOnlyPath(params: {
-  cfg: OpenClawConfig;
-  provider: string;
-  id: string;
-}): boolean {
-  const providerConfig = params.cfg.secrets?.providers?.[params.provider];
-  if (!providerConfig) {
-    return params.provider === resolveDefaultSecretProviderAlias(params.cfg, "env");
-  }
-  if (providerConfig.source !== "env") {
-    return false;
-  }
-  const allowlist = providerConfig.allowlist;
-  return !allowlist || allowlist.includes(params.id);
-}
-
-function inspectTokenValue(params: { cfg: OpenClawConfig; value: unknown }): {
-  token: string;
-  tokenSource: "config" | "env" | "none";
-  tokenStatus: TelegramCredentialStatus;
-} | null {
-  // Try to resolve env-based SecretRefs from process.env for read-only inspection
-  const ref = coerceSecretRef(params.value, params.cfg.secrets?.defaults);
-  if (ref?.source === "env") {
-    if (
-      !canResolveEnvSecretRefInReadOnlyPath({
-        cfg: params.cfg,
-        provider: ref.provider,
-        id: ref.id,
-      })
-    ) {
-      return {
-        token: "",
-        tokenSource: "env",
-        tokenStatus: "configured_unavailable",
-      };
-    }
-    const envValue = process.env[ref.id];
-    if (envValue && envValue.trim()) {
-      return {
-        token: envValue.trim(),
-        tokenSource: "env",
-        tokenStatus: "available",
-      };
-    }
+  if (!fs.existsSync(tokenFile)) {
     return {
       token: "",
-      tokenSource: "env",
+      tokenSource: "tokenFile",
       tokenStatus: "configured_unavailable",
     };
   }
-  const token = normalizeSecretInputString(params.value);
+  try {
+    const token = fs.readFileSync(tokenFile, "utf-8").trim();
+    return {
+      token,
+      tokenSource: "tokenFile",
+      tokenStatus: token ? "available" : "configured_unavailable",
+    };
+  } catch {
+    return {
+      token: "",
+      tokenSource: "tokenFile",
+      tokenStatus: "configured_unavailable",
+    };
+  }
+}
+
+function inspectTokenValue(value: unknown): {
+  token: string;
+  tokenSource: "config" | "none";
+  tokenStatus: TelegramCredentialStatus;
+} | null {
+  const token = normalizeSecretInputString(value);
   if (token) {
     return {
       token,
@@ -106,7 +90,7 @@ function inspectTokenValue(params: { cfg: OpenClawConfig; value: unknown }): {
       tokenStatus: "available",
     };
   }
-  if (hasConfiguredSecretInput(params.value, params.cfg.secrets?.defaults)) {
+  if (hasConfiguredSecretInput(value)) {
     return {
       token: "",
       tokenSource: "config",
@@ -140,7 +124,7 @@ function inspectTelegramAccountPrimary(params: {
     };
   }
 
-  const accountToken = inspectTokenValue({ cfg: params.cfg, value: accountConfig?.botToken });
+  const accountToken = inspectTokenValue(accountConfig?.botToken);
   if (accountToken) {
     return {
       accountId,
@@ -168,10 +152,7 @@ function inspectTelegramAccountPrimary(params: {
     };
   }
 
-  const channelToken = inspectTokenValue({
-    cfg: params.cfg,
-    value: params.cfg.channels?.telegram?.botToken,
-  });
+  const channelToken = inspectTokenValue(params.cfg.channels?.telegram?.botToken);
   if (channelToken) {
     return {
       accountId,

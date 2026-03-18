@@ -22,7 +22,6 @@ export const PushTestResultSchema = Type.Object(
     tokenSuffix: Type.String(),
     topic: Type.String(),
     environment: ApnsEnvironmentSchema,
-    transport: Type.String({ enum: ["direct", "relay"] }),
   },
   { additionalProperties: false },
 );

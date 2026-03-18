@@ -1,6 +1,4 @@
 import { Routes } from "discord-api-types/v10";
-import { resolveThreadBindingConversationIdFromBindingId } from "../../channels/thread-binding-id.js";
-import { getRuntimeConfigSnapshot, type OpenClawConfig } from "../../config/config.js";
 import { logVerbose } from "../../globals.js";
 import {
   registerSessionBindingAdapter,
@@ -159,11 +157,26 @@ function toSessionBindingRecord(
   };
 }
 
+function resolveThreadIdFromBindingId(params: {
+  accountId: string;
+  bindingId?: string;
+}): string | undefined {
+  const bindingId = params.bindingId?.trim();
+  if (!bindingId) {
+    return undefined;
+  }
+  const prefix = `${params.accountId}:`;
+  if (!bindingId.startsWith(prefix)) {
+    return undefined;
+  }
+  const threadId = bindingId.slice(prefix.length).trim();
+  return threadId || undefined;
+}
+
 export function createThreadBindingManager(
   params: {
     accountId?: string;
     token?: string;
-    cfg?: OpenClawConfig;
     persist?: boolean;
     enableSweeper?: boolean;
     idleTimeoutMs?: number;
@@ -190,7 +203,6 @@ export function createThreadBindingManager(
     params.maxAgeMs,
     DEFAULT_THREAD_BINDING_MAX_AGE_MS,
   );
-  const resolveCurrentCfg = () => getRuntimeConfigSnapshot() ?? params.cfg;
   const resolveCurrentToken = () => getThreadBindingToken(accountId) ?? params.token;
 
   let sweepTimer: NodeJS.Timeout | null = null;
@@ -258,7 +270,6 @@ export function createThreadBindingManager(
       return nextRecord;
     },
     bindTarget: async (bindParams) => {
-      const cfg = resolveCurrentCfg();
       let threadId = normalizeThreadId(bindParams.threadId);
       let channelId = bindParams.channelId?.trim() || "";
 
@@ -272,7 +283,6 @@ export function createThreadBindingManager(
         });
         threadId =
           (await createThreadForBinding({
-            cfg,
             accountId,
             token: resolveCurrentToken(),
             channelId,
@@ -287,7 +297,6 @@ export function createThreadBindingManager(
       if (!channelId) {
         channelId =
           (await resolveChannelIdForBinding({
-            cfg,
             accountId,
             token: resolveCurrentToken(),
             threadId,
@@ -313,7 +322,6 @@ export function createThreadBindingManager(
       }
       if (!webhookId || !webhookToken) {
         const createdWebhook = await createWebhookForChannel({
-          cfg,
           accountId,
           token: resolveCurrentToken(),
           channelId,
@@ -347,7 +355,7 @@ export function createThreadBindingManager(
 
       const introText = bindParams.introText?.trim();
       if (introText) {
-        void maybeSendBindingMessage({ cfg, record, text: introText });
+        void maybeSendBindingMessage({ record, text: introText });
       }
       return record;
     },
@@ -372,7 +380,6 @@ export function createThreadBindingManager(
         saveBindingsToDisk();
       }
       if (unbindParams.sendFarewell !== false) {
-        const cfg = resolveCurrentCfg();
         const farewell = resolveThreadBindingFarewellText({
           reason: unbindParams.reason,
           farewellText: unbindParams.farewellText,
@@ -387,12 +394,7 @@ export function createThreadBindingManager(
         });
         // Use bot send path for farewell messages so unbound threads don't process
         // webhook echoes as fresh inbound turns when allowBots is enabled.
-        void maybeSendBindingMessage({
-          cfg,
-          record: removed,
-          text: farewell,
-          preferWebhook: false,
-        });
+        void maybeSendBindingMessage({ record: removed, text: farewell, preferWebhook: false });
       }
       return removed;
     },
@@ -446,14 +448,10 @@ export function createThreadBindingManager(
         }
         let rest;
         try {
-          const cfg = resolveCurrentCfg();
-          rest = createDiscordRestClient(
-            {
-              accountId,
-              token: resolveCurrentToken(),
-            },
-            cfg,
-          ).rest;
+          rest = createDiscordRestClient({
+            accountId,
+            token: resolveCurrentToken(),
+          }).rest;
         } catch {
           return;
         }
@@ -578,10 +576,8 @@ export function createThreadBindingManager(
       if (placement === "child") {
         createThread = true;
         if (!channelId && conversationId) {
-          const cfg = resolveCurrentCfg();
           channelId =
             (await resolveChannelIdForBinding({
-              cfg,
               accountId,
               token: resolveCurrentToken(),
               threadId: conversationId,
@@ -621,10 +617,7 @@ export function createThreadBindingManager(
       return binding ? toSessionBindingRecord(binding, { idleTimeoutMs, maxAgeMs }) : null;
     },
     touch: (bindingId, at) => {
-      const threadId = resolveThreadBindingConversationIdFromBindingId({
-        accountId,
-        bindingId,
-      });
+      const threadId = resolveThreadIdFromBindingId({ accountId, bindingId });
       if (!threadId) {
         return;
       }
@@ -638,7 +631,7 @@ export function createThreadBindingManager(
         });
         return removed.map((entry) => toSessionBindingRecord(entry, { idleTimeoutMs, maxAgeMs }));
       }
-      const threadId = resolveThreadBindingConversationIdFromBindingId({
+      const threadId = resolveThreadIdFromBindingId({
         accountId,
         bindingId: input.bindingId,
       });

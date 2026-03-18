@@ -94,33 +94,6 @@ function createPairingAuthCore(params?: { storeAllowFrom?: string[]; pairingCrea
   return { core, readAllowFromStore, upsertPairingRequest };
 }
 
-async function postUntilRateLimited(params: {
-  baseUrl: string;
-  path: string;
-  secret: string;
-  withNonceQuery?: boolean;
-  attempts?: number;
-}): Promise<boolean> {
-  const attempts = params.attempts ?? 130;
-  for (let i = 0; i < attempts; i += 1) {
-    const url = params.withNonceQuery
-      ? `${params.baseUrl}${params.path}?nonce=${i}`
-      : `${params.baseUrl}${params.path}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "x-bot-api-secret-token": params.secret,
-        "content-type": "application/json",
-      },
-      body: "{}",
-    });
-    if (response.status === 429) {
-      return true;
-    }
-  }
-  return false;
-}
-
 describe("handleZaloWebhookRequest", () => {
   afterEach(() => {
     clearZaloWebhookSecurityStateForTest();
@@ -266,11 +239,21 @@ describe("handleZaloWebhookRequest", () => {
 
     try {
       await withServer(webhookRequestHandler, async (baseUrl) => {
-        const saw429 = await postUntilRateLimited({
-          baseUrl,
-          path: "/hook-rate",
-          secret: "secret", // pragma: allowlist secret
-        });
+        let saw429 = false;
+        for (let i = 0; i < 130; i += 1) {
+          const response = await fetch(`${baseUrl}/hook-rate`, {
+            method: "POST",
+            headers: {
+              "x-bot-api-secret-token": "secret",
+              "content-type": "application/json",
+            },
+            body: "{}",
+          });
+          if (response.status === 429) {
+            saw429 = true;
+            break;
+          }
+        }
 
         expect(saw429).toBe(true);
       });
@@ -283,25 +266,19 @@ describe("handleZaloWebhookRequest", () => {
 
     try {
       await withServer(webhookRequestHandler, async (baseUrl) => {
-        let saw429 = false;
         for (let i = 0; i < 200; i += 1) {
           const response = await fetch(`${baseUrl}/hook-query-status?nonce=${i}`, {
             method: "POST",
             headers: {
-              "x-bot-api-secret-token": "invalid-token", // pragma: allowlist secret
+              "x-bot-api-secret-token": "invalid-token",
               "content-type": "application/json",
             },
             body: "{}",
           });
-          expect([401, 429]).toContain(response.status);
-          if (response.status === 429) {
-            saw429 = true;
-            break;
-          }
+          expect(response.status).toBe(401);
         }
 
-        expect(saw429).toBe(true);
-        expect(getZaloWebhookStatusCounterSizeForTest()).toBe(2);
+        expect(getZaloWebhookStatusCounterSizeForTest()).toBe(1);
       });
     } finally {
       unregister();
@@ -313,100 +290,24 @@ describe("handleZaloWebhookRequest", () => {
 
     try {
       await withServer(webhookRequestHandler, async (baseUrl) => {
-        const saw429 = await postUntilRateLimited({
-          baseUrl,
-          path: "/hook-query-rate",
-          secret: "secret", // pragma: allowlist secret
-          withNonceQuery: true,
-        });
-
-        expect(saw429).toBe(true);
-        expect(getZaloWebhookRateLimitStateSizeForTest()).toBe(1);
-      });
-    } finally {
-      unregister();
-    }
-  });
-
-  it("rate limits unauthorized secret guesses before authentication succeeds", async () => {
-    const unregister = registerTarget({ path: "/hook-preauth-rate" });
-
-    try {
-      await withServer(webhookRequestHandler, async (baseUrl) => {
-        const saw429 = await postUntilRateLimited({
-          baseUrl,
-          path: "/hook-preauth-rate",
-          secret: "invalid-token", // pragma: allowlist secret
-          withNonceQuery: true,
-        });
-
-        expect(saw429).toBe(true);
-        expect(getZaloWebhookRateLimitStateSizeForTest()).toBe(1);
-      });
-    } finally {
-      unregister();
-    }
-  });
-
-  it("does not let unauthorized floods rate-limit authenticated traffic from a different trusted forwarded client IP", async () => {
-    const unregister = registerTarget({
-      path: "/hook-preauth-split",
-      config: {
-        gateway: {
-          trustedProxies: ["127.0.0.1"],
-        },
-      } as OpenClawConfig,
-    });
-
-    try {
-      await withServer(webhookRequestHandler, async (baseUrl) => {
+        let saw429 = false;
         for (let i = 0; i < 130; i += 1) {
-          const response = await fetch(`${baseUrl}/hook-preauth-split?nonce=${i}`, {
+          const response = await fetch(`${baseUrl}/hook-query-rate?nonce=${i}`, {
             method: "POST",
             headers: {
-              "x-bot-api-secret-token": "invalid-token", // pragma: allowlist secret
+              "x-bot-api-secret-token": "secret",
               "content-type": "application/json",
-              "x-forwarded-for": "203.0.113.10",
             },
             body: "{}",
           });
           if (response.status === 429) {
+            saw429 = true;
             break;
           }
         }
 
-        const validResponse = await fetch(`${baseUrl}/hook-preauth-split`, {
-          method: "POST",
-          headers: {
-            "x-bot-api-secret-token": "secret",
-            "content-type": "application/json",
-            "x-forwarded-for": "198.51.100.20",
-          },
-          body: JSON.stringify({ event_name: "message.unsupported.received" }),
-        });
-
-        expect(validResponse.status).toBe(200);
-      });
-    } finally {
-      unregister();
-    }
-  });
-
-  it("still returns 401 before 415 when both secret and content-type are invalid", async () => {
-    const unregister = registerTarget({ path: "/hook-auth-before-type" });
-
-    try {
-      await withServer(webhookRequestHandler, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/hook-auth-before-type`, {
-          method: "POST",
-          headers: {
-            "x-bot-api-secret-token": "invalid-token", // pragma: allowlist secret
-            "content-type": "text/plain",
-          },
-          body: "not-json",
-        });
-
-        expect(response.status).toBe(401);
+        expect(saw429).toBe(true);
+        expect(getZaloWebhookRateLimitStateSizeForTest()).toBe(1);
       });
     } finally {
       unregister();

@@ -2,10 +2,6 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { ClawdbotConfig } from "openclaw/plugin-sdk/feishu";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  createFeishuClientMockModule,
-  createFeishuRuntimeMockModule,
-} from "./monitor.test-mocks.js";
 
 const probeFeishuMock = vi.hoisted(() => vi.fn());
 
@@ -13,8 +9,27 @@ vi.mock("./probe.js", () => ({
   probeFeishu: probeFeishuMock,
 }));
 
-vi.mock("./client.js", () => createFeishuClientMockModule());
-vi.mock("./runtime.js", () => createFeishuRuntimeMockModule());
+vi.mock("./client.js", () => ({
+  createFeishuWSClient: vi.fn(() => ({ start: vi.fn() })),
+  createEventDispatcher: vi.fn(() => ({ register: vi.fn() })),
+}));
+
+vi.mock("./runtime.js", () => ({
+  getFeishuRuntime: () => ({
+    channel: {
+      debounce: {
+        resolveInboundDebounceMs: () => 0,
+        createInboundDebouncer: () => ({
+          enqueue: async () => {},
+          flushKey: async () => {},
+        }),
+      },
+      text: {
+        hasControlCommand: () => false,
+      },
+    },
+  }),
+}));
 
 vi.mock("@larksuiteoapi/node-sdk", () => ({
   adaptDefault: vi.fn(
@@ -64,7 +79,6 @@ function buildConfig(params: {
   path: string;
   port: number;
   verificationToken?: string;
-  encryptKey?: string;
 }): ClawdbotConfig {
   return {
     channels: {
@@ -74,12 +88,11 @@ function buildConfig(params: {
           [params.accountId]: {
             enabled: true,
             appId: "cli_test",
-            appSecret: "secret_test", // pragma: allowlist secret
+            appSecret: "secret_test",
             connectionMode: "webhook",
             webhookHost: "127.0.0.1",
             webhookPort: params.port,
             webhookPath: params.path,
-            encryptKey: params.encryptKey,
             verificationToken: params.verificationToken,
           },
         },
@@ -93,7 +106,6 @@ async function withRunningWebhookMonitor(
     accountId: string;
     path: string;
     verificationToken: string;
-    encryptKey: string;
   },
   run: (url: string) => Promise<void>,
 ) {
@@ -102,7 +114,6 @@ async function withRunningWebhookMonitor(
     accountId: params.accountId,
     path: params.path,
     port,
-    encryptKey: params.encryptKey,
     verificationToken: params.verificationToken,
   });
 
@@ -145,19 +156,6 @@ describe("Feishu webhook security hardening", () => {
     );
   });
 
-  it("rejects webhook mode without encryptKey", async () => {
-    probeFeishuMock.mockResolvedValue({ ok: true, botOpenId: "bot_open_id" });
-
-    const cfg = buildConfig({
-      accountId: "missing-encrypt-key",
-      path: "/hook-missing-encrypt",
-      port: await getFreePort(),
-      verificationToken: "verify_token",
-    });
-
-    await expect(monitorFeishuProvider({ config: cfg })).rejects.toThrow(/requires encryptKey/i);
-  });
-
   it("returns 415 for POST requests without json content type", async () => {
     probeFeishuMock.mockResolvedValue({ ok: true, botOpenId: "bot_open_id" });
     await withRunningWebhookMonitor(
@@ -165,7 +163,6 @@ describe("Feishu webhook security hardening", () => {
         accountId: "content-type",
         path: "/hook-content-type",
         verificationToken: "verify_token",
-        encryptKey: "encrypt_key",
       },
       async (url) => {
         const response = await fetch(url, {
@@ -187,7 +184,6 @@ describe("Feishu webhook security hardening", () => {
         accountId: "rate-limit",
         path: "/hook-rate-limit",
         verificationToken: "verify_token",
-        encryptKey: "encrypt_key",
       },
       async (url) => {
         let saw429 = false;

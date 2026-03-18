@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/diffs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTempDiffRoot } from "./test-helpers.js";
 
 const { launchMock } = vi.hoisted(() => ({
   launchMock: vi.fn(),
@@ -17,11 +17,10 @@ vi.mock("playwright-core", () => ({
 describe("PlaywrightDiffScreenshotter", () => {
   let rootDir: string;
   let outputPath: string;
-  let cleanupRootDir: () => Promise<void>;
 
   beforeEach(async () => {
     vi.useFakeTimers();
-    ({ rootDir, cleanup: cleanupRootDir } = await createTempDiffRoot("openclaw-diffs-browser-"));
+    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-diffs-browser-"));
     outputPath = path.join(rootDir, "preview.png");
     launchMock.mockReset();
     const browserModule = await import("./browser.js");
@@ -32,7 +31,7 @@ describe("PlaywrightDiffScreenshotter", () => {
     const browserModule = await import("./browser.js");
     await browserModule.resetSharedBrowserStateForTests();
     vi.useRealTimers();
-    await cleanupRootDir();
+    await fs.rm(rootDir, { recursive: true, force: true });
   });
 
   it("reuses the same browser across renders and closes it after the idle window", async () => {

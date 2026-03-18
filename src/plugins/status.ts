@@ -15,8 +15,6 @@ const log = createSubsystemLogger("plugins");
 export function buildPluginStatusReport(params?: {
   config?: ReturnType<typeof loadConfig>;
   workspaceDir?: string;
-  /** Use an explicit env when plugin roots should resolve independently from process.env. */
-  env?: NodeJS.ProcessEnv;
 }): PluginStatusReport {
   const config = params?.config ?? loadConfig();
   const workspaceDir = params?.workspaceDir
@@ -27,7 +25,6 @@ export function buildPluginStatusReport(params?: {
   const registry = loadOpenClawPlugins({
     config,
     workspaceDir,
-    env: params?.env,
     logger: createPluginLoaderLogger(log),
   });
 

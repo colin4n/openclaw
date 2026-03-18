@@ -16,7 +16,7 @@ import {
 } from "../memory/status-format.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { runSecurityAudit } from "../security/audit.js";
-import { getTerminalTableWidth, renderTable } from "../terminal/table.js";
+import { renderTable } from "../terminal/table.js";
 import { theme } from "../terminal/theme.js";
 import { formatHealthChannelLines, type HealthSummary } from "./health.js";
 import { resolveControlUiLinks } from "./onboard-helpers.js";
@@ -153,7 +153,6 @@ export async function statusCommand(
             method: "health",
             params: { probe: true },
             timeoutMs: opts.timeoutMs,
-            config: scan.cfg,
           }),
       )
     : undefined;
@@ -163,7 +162,6 @@ export async function statusCommand(
           method: "last-heartbeat",
           params: {},
           timeoutMs: opts.timeoutMs,
-          config: scan.cfg,
         }).catch(() => null)
       : null;
 
@@ -221,7 +219,7 @@ export async function statusCommand(
   const warn = (value: string) => (rich ? theme.warn(value) : value);
 
   if (opts.verbose) {
-    const details = buildGatewayConnectionDetails({ config: scan.cfg });
+    const details = buildGatewayConnectionDetails();
     runtime.log(info("Gateway connection:"));
     for (const line of details.message.split("\n")) {
       runtime.log(`  ${line}`);
@@ -229,7 +227,7 @@ export async function statusCommand(
     runtime.log("");
   }
 
-  const tableWidth = getTerminalTableWidth();
+  const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
 
   if (secretDiagnostics.length > 0) {
     runtime.log(theme.warn("Secret diagnostics:"));
@@ -304,14 +302,14 @@ export async function statusCommand(
     if (daemon.installed === false) {
       return `${daemon.label} not installed`;
     }
-    const installedPrefix = daemon.managedByOpenClaw ? "installed · " : "";
+    const installedPrefix = daemon.installed === true ? "installed · " : "";
     return `${daemon.label} ${installedPrefix}${daemon.loadedText}${daemon.runtimeShort ? ` · ${daemon.runtimeShort}` : ""}`;
   })();
   const nodeDaemonValue = (() => {
     if (nodeDaemon.installed === false) {
       return `${nodeDaemon.label} not installed`;
     }
-    const installedPrefix = nodeDaemon.managedByOpenClaw ? "installed · " : "";
+    const installedPrefix = nodeDaemon.installed === true ? "installed · " : "";
     return `${nodeDaemon.label} ${installedPrefix}${nodeDaemon.loadedText}${nodeDaemon.runtimeShort ? ` · ${nodeDaemon.runtimeShort}` : ""}`;
   })();
 

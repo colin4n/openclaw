@@ -3,15 +3,10 @@ import OpenClawKit
 import Testing
 @testable import OpenClaw
 
-struct GatewayChannelConnectTests {
+@Suite struct GatewayChannelConnectTests {
     private enum FakeResponse {
         case helloOk(delayMs: Int)
         case invalid(delayMs: Int)
-        case authFailed(
-            delayMs: Int,
-            detailCode: String,
-            canRetryWithDeviceToken: Bool,
-            recommendedNextStep: String?)
     }
 
     private func makeSession(response: FakeResponse) -> GatewayTestWebSocketSession {
@@ -32,14 +27,6 @@ struct GatewayChannelConnectTests {
                         case let .invalid(ms):
                             delayMs = ms
                             message = .string("not json")
-                        case let .authFailed(ms, detailCode, canRetryWithDeviceToken, recommendedNextStep):
-                            delayMs = ms
-                            let id = task.snapshotConnectRequestID() ?? "connect"
-                            message = .data(GatewayWebSocketTestSupport.connectAuthFailureData(
-                                id: id,
-                                detailCode: detailCode,
-                                canRetryWithDeviceToken: canRetryWithDeviceToken,
-                                recommendedNextStep: recommendedNextStep))
                         }
                         try await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
                         return message
@@ -47,7 +34,7 @@ struct GatewayChannelConnectTests {
             })
     }
 
-    @Test func `concurrent connect is single flight on success`() async throws {
+    @Test func concurrentConnectIsSingleFlightOnSuccess() async throws {
         let session = self.makeSession(response: .helloOk(delayMs: 200))
         let channel = try GatewayChannelActor(
             url: #require(URL(string: "ws://example.invalid")),
@@ -63,7 +50,7 @@ struct GatewayChannelConnectTests {
         #expect(session.snapshotMakeCount() == 1)
     }
 
-    @Test func `concurrent connect shares failure`() async throws {
+    @Test func concurrentConnectSharesFailure() async throws {
         let session = self.makeSession(response: .invalid(delayMs: 200))
         let channel = try GatewayChannelActor(
             url: #require(URL(string: "ws://example.invalid")),
@@ -83,30 +70,5 @@ struct GatewayChannelConnectTests {
             if case .failure = r2 { true } else { false }
         }())
         #expect(session.snapshotMakeCount() == 1)
-    }
-
-    @Test func `connect surfaces structured auth failure`() async throws {
-        let session = self.makeSession(response: .authFailed(
-            delayMs: 0,
-            detailCode: GatewayConnectAuthDetailCode.authTokenMissing.rawValue,
-            canRetryWithDeviceToken: true,
-            recommendedNextStep: GatewayConnectRecoveryNextStep.updateAuthConfiguration.rawValue))
-        let channel = try GatewayChannelActor(
-            url: #require(URL(string: "ws://example.invalid")),
-            token: nil,
-            session: WebSocketSessionBox(session: session))
-
-        do {
-            try await channel.connect()
-            Issue.record("expected GatewayConnectAuthError")
-        } catch let error as GatewayConnectAuthError {
-            #expect(error.detail == .authTokenMissing)
-            #expect(error.detailCode == GatewayConnectAuthDetailCode.authTokenMissing.rawValue)
-            #expect(error.canRetryWithDeviceToken)
-            #expect(error.recommendedNextStep == .updateAuthConfiguration)
-            #expect(error.recommendedNextStepCode == GatewayConnectRecoveryNextStep.updateAuthConfiguration.rawValue)
-        } catch {
-            Issue.record("unexpected error: \(error)")
-        }
     }
 }

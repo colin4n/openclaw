@@ -1,8 +1,11 @@
-import { tryReadSecretFileSync } from "openclaw/plugin-sdk/core";
+import { readFileSync } from "node:fs";
 import {
-  createAccountListHelpers,
   DEFAULT_ACCOUNT_ID,
   normalizeAccountId,
+  normalizeOptionalAccountId,
+} from "openclaw/plugin-sdk/account-id";
+import {
+  listConfiguredAccountIds as listConfiguredAccountIdsFromSection,
   resolveAccountWithDefaultFallback,
 } from "openclaw/plugin-sdk/nextcloud-talk";
 import { normalizeResolvedSecretInputString } from "./secret-input.js";
@@ -29,18 +32,37 @@ export type ResolvedNextcloudTalkAccount = {
   config: NextcloudTalkAccountConfig;
 };
 
-const {
-  listAccountIds: listNextcloudTalkAccountIdsInternal,
-  resolveDefaultAccountId: resolveDefaultNextcloudTalkAccountId,
-} = createAccountListHelpers("nextcloud-talk", {
-  normalizeAccountId,
-});
-export { resolveDefaultNextcloudTalkAccountId };
+function listConfiguredAccountIds(cfg: CoreConfig): string[] {
+  return listConfiguredAccountIdsFromSection({
+    accounts: cfg.channels?.["nextcloud-talk"]?.accounts as Record<string, unknown> | undefined,
+    normalizeAccountId,
+  });
+}
 
 export function listNextcloudTalkAccountIds(cfg: CoreConfig): string[] {
-  const ids = listNextcloudTalkAccountIdsInternal(cfg);
+  const ids = listConfiguredAccountIds(cfg);
   debugAccounts("listNextcloudTalkAccountIds", ids);
-  return ids;
+  if (ids.length === 0) {
+    return [DEFAULT_ACCOUNT_ID];
+  }
+  return ids.toSorted((a, b) => a.localeCompare(b));
+}
+
+export function resolveDefaultNextcloudTalkAccountId(cfg: CoreConfig): string {
+  const preferred = normalizeOptionalAccountId(cfg.channels?.["nextcloud-talk"]?.defaultAccount);
+  if (
+    preferred &&
+    listNextcloudTalkAccountIds(cfg).some(
+      (accountId) => normalizeAccountId(accountId) === preferred,
+    )
+  ) {
+    return preferred;
+  }
+  const ids = listNextcloudTalkAccountIds(cfg);
+  if (ids.includes(DEFAULT_ACCOUNT_ID)) {
+    return DEFAULT_ACCOUNT_ID;
+  }
+  return ids[0] ?? DEFAULT_ACCOUNT_ID;
 }
 
 function resolveAccountConfig(
@@ -88,13 +110,13 @@ function resolveNextcloudTalkSecret(
   }
 
   if (merged.botSecretFile) {
-    const fileSecret = tryReadSecretFileSync(
-      merged.botSecretFile,
-      "Nextcloud Talk bot secret file",
-      { rejectSymlink: true },
-    );
-    if (fileSecret) {
-      return { secret: fileSecret, source: "secretFile" };
+    try {
+      const fileSecret = readFileSync(merged.botSecretFile, "utf-8").trim();
+      if (fileSecret) {
+        return { secret: fileSecret, source: "secretFile" };
+      }
+    } catch {
+      // File not found or unreadable, fall through.
     }
   }
 

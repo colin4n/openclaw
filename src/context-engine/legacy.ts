@@ -5,7 +5,6 @@ import type {
   ContextEngineInfo,
   AssembleResult,
   CompactResult,
-  ContextEngineRuntimeContext,
   IngestResult,
 } from "./types.js";
 
@@ -55,7 +54,7 @@ export class LegacyContextEngine implements ContextEngine {
     autoCompactionSummary?: string;
     isHeartbeat?: boolean;
     tokenBudget?: number;
-    runtimeContext?: ContextEngineRuntimeContext;
+    legacyCompactionParams?: Record<string, unknown>;
   }): Promise<void> {
     // No-op: legacy flow persists context directly in SessionManager.
   }
@@ -68,34 +67,26 @@ export class LegacyContextEngine implements ContextEngine {
     currentTokenCount?: number;
     compactionTarget?: "budget" | "threshold";
     customInstructions?: string;
-    runtimeContext?: ContextEngineRuntimeContext;
+    legacyParams?: Record<string, unknown>;
   }): Promise<CompactResult> {
-    // Import through a dedicated runtime boundary so the lazy edge remains effective.
+    // Import dynamically to avoid circular dependencies
     const { compactEmbeddedPiSessionDirect } =
-      await import("../agents/pi-embedded-runner/compact.runtime.js");
+      await import("../agents/pi-embedded-runner/compact.js");
 
-    // runtimeContext carries the full CompactEmbeddedPiSessionParams fields
+    // legacyParams carries the full CompactEmbeddedPiSessionParams fields
     // set by the caller in run.ts. We spread them and override the fields
     // that come from the ContextEngine compact() signature directly.
-    const runtimeContext = params.runtimeContext ?? {};
-    const currentTokenCount =
-      params.currentTokenCount ??
-      (typeof runtimeContext.currentTokenCount === "number" &&
-      Number.isFinite(runtimeContext.currentTokenCount) &&
-      runtimeContext.currentTokenCount > 0
-        ? Math.floor(runtimeContext.currentTokenCount)
-        : undefined);
+    const lp = params.legacyParams ?? {};
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- bridge runtimeContext matches CompactEmbeddedPiSessionParams
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy bridge: legacyParams is an opaque bag matching CompactEmbeddedPiSessionParams
     const result = await compactEmbeddedPiSessionDirect({
-      ...runtimeContext,
+      ...lp,
       sessionId: params.sessionId,
       sessionFile: params.sessionFile,
       tokenBudget: params.tokenBudget,
-      ...(currentTokenCount !== undefined ? { currentTokenCount } : {}),
       force: params.force,
       customInstructions: params.customInstructions,
-      workspaceDir: (runtimeContext.workspaceDir as string) ?? process.cwd(),
+      workspaceDir: (lp.workspaceDir as string) ?? process.cwd(),
     } as Parameters<typeof compactEmbeddedPiSessionDirect>[0]);
 
     return {

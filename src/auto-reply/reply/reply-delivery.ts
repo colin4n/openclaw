@@ -2,7 +2,7 @@ import { logVerbose } from "../../globals.js";
 import { SILENT_REPLY_TOKEN } from "../tokens.js";
 import type { BlockReplyContext, ReplyPayload } from "../types.js";
 import type { BlockReplyPipeline } from "./block-reply-pipeline.js";
-import { createBlockReplyContentKey } from "./block-reply-pipeline.js";
+import { createBlockReplyPayloadKey } from "./block-reply-pipeline.js";
 import { parseReplyDirectives } from "./reply-directives.js";
 import { applyReplyTagsToPayload, isRenderablePayload } from "./reply-payloads.js";
 import type { TypingSignaler } from "./typing-mode.js";
@@ -65,7 +65,6 @@ export function createBlockReplyDeliveryHandler(params: {
   currentMessageId?: string;
   normalizeStreamingText: (payload: ReplyPayload) => { text?: string; skip: boolean };
   applyReplyToMode: (payload: ReplyPayload) => ReplyPayload;
-  normalizeMediaPaths?: (payload: ReplyPayload) => Promise<ReplyPayload>;
   typingSignals: TypingSignaler;
   blockStreamingEnabled: boolean;
   blockReplyPipeline: BlockReplyPipeline | null;
@@ -102,10 +101,7 @@ export function createBlockReplyDeliveryHandler(params: {
       parseMode: "auto",
     });
 
-    const mediaNormalizedPayload = params.normalizeMediaPaths
-      ? await params.normalizeMediaPaths(normalized.payload)
-      : normalized.payload;
-    const blockPayload = params.applyReplyToMode(mediaNormalizedPayload);
+    const blockPayload = params.applyReplyToMode(normalized.payload);
     const blockHasMedia = hasRenderableMedia(blockPayload);
 
     // Skip empty payloads unless they have audioAsVoice flag (need to track it).
@@ -128,7 +124,7 @@ export function createBlockReplyDeliveryHandler(params: {
     } else if (params.blockStreamingEnabled) {
       // Send directly when flushing before tool execution (no pipeline but streaming enabled).
       // Track sent key to avoid duplicate in final payloads.
-      params.directlySentBlockKeys.add(createBlockReplyContentKey(blockPayload));
+      params.directlySentBlockKeys.add(createBlockReplyPayloadKey(blockPayload));
       await params.onBlockReply(blockPayload);
     }
     // When streaming is disabled entirely, blocks are accumulated in final text instead.

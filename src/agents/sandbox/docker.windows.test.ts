@@ -47,20 +47,22 @@ describe("resolveDockerSpawnInvocation", () => {
     });
   });
 
-  it("rejects unresolved docker.cmd wrappers instead of shelling out", async () => {
+  it("falls back to shell mode when only unresolved docker.cmd wrapper exists", async () => {
     const dir = await createTempDir();
     const cmdPath = path.join(dir, "docker.cmd");
     await mkdir(path.dirname(cmdPath), { recursive: true });
     await writeFile(cmdPath, "@ECHO off\r\necho docker\r\n", "utf8");
 
-    expect(() =>
-      resolveDockerSpawnInvocation(["ps"], {
-        platform: "win32",
-        env: { PATH: dir, PATHEXT: ".CMD;.EXE;.BAT" },
-        execPath: "C:\\node\\node.exe",
-      }),
-    ).toThrow(
-      /wrapper resolved, but no executable\/Node entrypoint could be resolved without shell execution\./i,
+    const resolved = resolveDockerSpawnInvocation(["ps"], {
+      platform: "win32",
+      env: { PATH: dir, PATHEXT: ".CMD;.EXE;.BAT" },
+      execPath: "C:\\node\\node.exe",
+    });
+    expect(path.normalize(resolved.command).toLowerCase()).toBe(
+      path.normalize(cmdPath).toLowerCase(),
     );
+    expect(resolved.args).toEqual(["ps"]);
+    expect(resolved.shell).toBe(true);
+    expect(resolved.windowsHide).toBeUndefined();
   });
 });

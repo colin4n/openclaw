@@ -9,19 +9,17 @@ import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import type { UiSettings } from "./storage.ts";
 import type { ThemeTransitionContext } from "./theme-transition.ts";
-import type { ResolvedTheme, ThemeMode, ThemeName } from "./theme.ts";
+import type { ThemeMode } from "./theme.ts";
 import type {
   AgentsListResult,
   AgentsFilesListResult,
   AgentIdentityResult,
-  AttentionItem,
   ChannelsStatusSnapshot,
   ConfigSnapshot,
   ConfigUiHints,
-  HealthSummary,
+  HealthSnapshot,
   LogEntry,
   LogLevel,
-  ModelCatalogEntry,
   NostrProfile,
   PresenceEntry,
   SessionsUsageResult,
@@ -29,8 +27,8 @@ import type {
   SessionUsageTimeSeries,
   SessionsListResult,
   SkillStatusReport,
-  StatusSummary,
   ToolsCatalogResult,
+  StatusSummary,
 } from "./types.ts";
 import type { ChatAttachment, ChatQueueItem } from "./ui-types.ts";
 import type { NostrProfileFormState } from "./views/channels.nostr-profile-form.ts";
@@ -39,16 +37,12 @@ import type { SessionLogEntry } from "./views/usage.ts";
 export type AppViewState = {
   settings: UiSettings;
   password: string;
-  loginShowGatewayToken: boolean;
-  loginShowGatewayPassword: boolean;
   tab: Tab;
   onboarding: boolean;
   basePath: string;
   connected: boolean;
-  theme: ThemeName;
-  themeMode: ThemeMode;
-  themeResolved: ResolvedTheme;
-  themeOrder: ThemeName[];
+  theme: ThemeMode;
+  themeResolved: "light" | "dark";
   hello: GatewayHelloOk | null;
   lastError: string | null;
   lastErrorCode: string | null;
@@ -63,7 +57,6 @@ export type AppViewState = {
   chatAttachments: ChatAttachment[];
   chatMessages: unknown[];
   chatToolMessages: unknown[];
-  chatStreamSegments: Array<{ text: string; ts: number }>;
   chatStream: string | null;
   chatStreamStartedAt: number | null;
   chatRunId: string | null;
@@ -116,26 +109,6 @@ export type AppViewState = {
   configSearchQuery: string;
   configActiveSection: string | null;
   configActiveSubsection: string | null;
-  communicationsFormMode: "form" | "raw";
-  communicationsSearchQuery: string;
-  communicationsActiveSection: string | null;
-  communicationsActiveSubsection: string | null;
-  appearanceFormMode: "form" | "raw";
-  appearanceSearchQuery: string;
-  appearanceActiveSection: string | null;
-  appearanceActiveSubsection: string | null;
-  automationFormMode: "form" | "raw";
-  automationSearchQuery: string;
-  automationActiveSection: string | null;
-  automationActiveSubsection: string | null;
-  infrastructureFormMode: "form" | "raw";
-  infrastructureSearchQuery: string;
-  infrastructureActiveSection: string | null;
-  infrastructureActiveSubsection: string | null;
-  aiAgentsFormMode: "form" | "raw";
-  aiAgentsSearchQuery: string;
-  aiAgentsActiveSection: string | null;
-  aiAgentsActiveSubsection: string | null;
   channelsLoading: boolean;
   channelsSnapshot: ChannelsStatusSnapshot | null;
   channelsError: string | null;
@@ -181,12 +154,6 @@ export type AppViewState = {
   sessionsIncludeGlobal: boolean;
   sessionsIncludeUnknown: boolean;
   sessionsHideCron: boolean;
-  sessionsSearchQuery: string;
-  sessionsSortColumn: "key" | "kind" | "updated" | "tokens";
-  sessionsSortDir: "asc" | "desc";
-  sessionsPage: number;
-  sessionsPageSize: number;
-  sessionsActionsOpenKey: string | null;
   usageLoading: boolean;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;
@@ -265,13 +232,10 @@ export type AppViewState = {
     skillEdits: Record<string, string>;
     skillMessages: Record<string, SkillMessage>;
     skillsBusyKey: string | null;
-    healthLoading: boolean;
-    healthResult: HealthSummary | null;
-    healthError: string | null;
     debugLoading: boolean;
     debugStatus: StatusSummary | null;
-    debugHealth: HealthSummary | null;
-    debugModels: ModelCatalogEntry[];
+    debugHealth: HealthSnapshot | null;
+    debugModels: unknown[];
     debugHeartbeat: unknown;
     debugCallMethod: string;
     debugCallParams: string;
@@ -291,21 +255,11 @@ export type AppViewState = {
     logsMaxBytes: number;
     logsAtBottom: boolean;
     updateAvailable: import("./types.js").UpdateAvailable | null;
-    attentionItems: AttentionItem[];
-    paletteOpen: boolean;
-    paletteQuery: string;
-    paletteActiveIndex: number;
-    streamMode: boolean;
-    overviewShowGatewayToken: boolean;
-    overviewShowGatewayPassword: boolean;
-    overviewLogLines: string[];
-    overviewLogCursor: number;
     client: GatewayBrowserClient | null;
     refreshSessionsAfterChat: Set<string>;
     connect: () => void;
     setTab: (tab: Tab) => void;
-    setTheme: (theme: ThemeName, context?: ThemeTransitionContext) => void;
-    setThemeMode: (mode: ThemeMode, context?: ThemeTransitionContext) => void;
+    setTheme: (theme: ThemeMode, context?: ThemeTransitionContext) => void;
     applySettings: (next: UiSettings) => void;
     loadOverview: () => Promise<void>;
     loadAssistantIdentity: () => Promise<void>;

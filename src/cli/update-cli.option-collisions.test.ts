@@ -44,36 +44,30 @@ describe("update cli option collisions", () => {
     defaultRuntime.exit.mockClear();
   });
 
-  it.each([
-    {
-      name: "forwards parent-captured --json/--timeout to `update status`",
-      argv: ["update", "status", "--json", "--timeout", "9"],
-      assert: () => {
-        expect(updateStatusCommand).toHaveBeenCalledWith(
-          expect.objectContaining({
-            json: true,
-            timeout: "9",
-          }),
-        );
-      },
-    },
-    {
-      name: "forwards parent-captured --timeout to `update wizard`",
-      argv: ["update", "wizard", "--timeout", "13"],
-      assert: () => {
-        expect(updateWizardCommand).toHaveBeenCalledWith(
-          expect.objectContaining({
-            timeout: "13",
-          }),
-        );
-      },
-    },
-  ])("$name", async ({ argv, assert }) => {
+  it("forwards parent-captured --json/--timeout to `update status`", async () => {
     await runRegisteredCli({
       register: registerUpdateCli as (program: Command) => void,
-      argv,
+      argv: ["update", "status", "--json", "--timeout", "9"],
     });
 
-    assert();
+    expect(updateStatusCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: true,
+        timeout: "9",
+      }),
+    );
+  });
+
+  it("forwards parent-captured --timeout to `update wizard`", async () => {
+    await runRegisteredCli({
+      register: registerUpdateCli as (program: Command) => void,
+      argv: ["update", "wizard", "--timeout", "13"],
+    });
+
+    expect(updateWizardCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeout: "13",
+      }),
+    );
   });
 });

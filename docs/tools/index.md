@@ -256,7 +256,7 @@ Enable with `tools.loopDetection.enabled: true` (default is `false`).
 
 ### `web_search`
 
-Search the web using Perplexity, Brave, Gemini, Grok, or Kimi.
+Search the web using Brave Search API.
 
 Core parameters:
 
@@ -265,7 +265,7 @@ Core parameters:
 
 Notes:
 
-- Requires an API key for the chosen provider (recommended: `openclaw configure --section web`).
+- Requires a Brave API key (recommended: `openclaw configure --section web`, or set `BRAVE_API_KEY`).
 - Enable via `tools.web.search.enabled`.
 - Responses are cached (default 15 min).
 - See [Web tools](/tools/web) for setup.
@@ -531,9 +531,6 @@ Browser tool:
 - `profile` (optional; defaults to `browser.defaultProfile`)
 - `target` (`sandbox` | `host` | `node`)
 - `node` (optional; pin a specific node id/name)
-- Troubleshooting guides:
-  - Linux startup/CDP issues: [Browser troubleshooting (Linux)](/tools/browser-linux-troubleshooting)
-  - WSL2 Gateway + Windows remote Chrome CDP: [WSL2 + Windows + remote Chrome CDP troubleshooting](/tools/browser-wsl2-windows-remote-cdp-troubleshooting)
 
 ## Recommended agent flows
 

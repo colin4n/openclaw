@@ -83,16 +83,16 @@ private final class MockWatchMessagingService: @preconcurrency WatchMessagingSer
         #expect(json.contains("\"value\""))
     }
 
-    @Test @MainActor func chatSessionKeyDefaultsToMainBase() {
+    @Test @MainActor func chatSessionKeyDefaultsToIOSBase() {
         let appModel = NodeAppModel()
-        #expect(appModel.chatSessionKey == "main")
+        #expect(appModel.chatSessionKey == "ios")
     }
 
     @Test @MainActor func chatSessionKeyUsesAgentScopedKeyForNonDefaultAgent() {
         let appModel = NodeAppModel()
         appModel.gatewayDefaultAgentId = "main"
         appModel.setSelectedAgentId("agent-123")
-        #expect(appModel.chatSessionKey == SessionKey.makeAgentSessionKey(agentId: "agent-123", baseKey: "main"))
+        #expect(appModel.chatSessionKey == SessionKey.makeAgentSessionKey(agentId: "agent-123", baseKey: "ios"))
         #expect(appModel.mainSessionKey == "agent:agent-123:main")
     }
 
@@ -177,41 +177,6 @@ private final class MockWatchMessagingService: @preconcurrency WatchMessagingSer
         let payloadData = try #require(evalRes.payloadJSON?.data(using: .utf8))
         let payload = try JSONSerialization.jsonObject(with: payloadData) as? [String: Any]
         #expect(payload?["result"] as? String == "2")
-    }
-
-    @Test @MainActor func pendingForegroundActionsReplayCanvasNavigate() async throws {
-        let appModel = NodeAppModel()
-        let navigateParams = OpenClawCanvasNavigateParams(url: "http://example.com/")
-        let navData = try JSONEncoder().encode(navigateParams)
-        let navJSON = String(decoding: navData, as: UTF8.self)
-
-        await appModel._test_applyPendingForegroundNodeActions([
-            (
-                id: "pending-nav-1",
-                command: OpenClawCanvasCommand.navigate.rawValue,
-                paramsJSON: navJSON
-            ),
-        ])
-
-        #expect(appModel.screen.urlString == "http://example.com/")
-    }
-
-    @Test @MainActor func pendingForegroundActionsDoNotApplyWhileBackgrounded() async throws {
-        let appModel = NodeAppModel()
-        appModel.setScenePhase(.background)
-        let navigateParams = OpenClawCanvasNavigateParams(url: "http://example.com/")
-        let navData = try JSONEncoder().encode(navigateParams)
-        let navJSON = String(decoding: navData, as: UTF8.self)
-
-        await appModel._test_applyPendingForegroundNodeActions([
-            (
-                id: "pending-nav-bg",
-                command: OpenClawCanvasCommand.navigate.rawValue,
-                paramsJSON: navJSON
-            ),
-        ])
-
-        #expect(appModel.screen.urlString.isEmpty)
     }
 
     @Test @MainActor func handleInvokeA2UICommandsFailWhenHostMissing() async throws {

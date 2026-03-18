@@ -12,10 +12,6 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/gif": ".gif",
   "audio/ogg": ".ogg",
   "audio/mpeg": ".mp3",
-  "audio/wav": ".wav",
-  "audio/flac": ".flac",
-  "audio/aac": ".aac",
-  "audio/opus": ".opus",
   "audio/x-m4a": ".m4a",
   "audio/mp4": ".m4a",
   "video/mp4": ".mp4",
@@ -191,6 +187,6 @@ export function imageMimeFromFormat(format?: string | null): string | undefined 
   }
 }
 
-export function kindFromMime(mime?: string | null): MediaKind | undefined {
+export function kindFromMime(mime?: string | null): MediaKind {
   return mediaKindFromMime(normalizeMimeType(mime));
 }

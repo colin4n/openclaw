@@ -1,25 +1,21 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DiffArtifactStore } from "./store.js";
-import { createDiffStoreHarness } from "./test-helpers.js";
 
 describe("DiffArtifactStore", () => {
   let rootDir: string;
   let store: DiffArtifactStore;
-  let cleanupRootDir: () => Promise<void>;
 
   beforeEach(async () => {
-    ({
-      rootDir,
-      store,
-      cleanup: cleanupRootDir,
-    } = await createDiffStoreHarness("openclaw-diffs-store-"));
+    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-diffs-store-"));
+    store = new DiffArtifactStore({ rootDir });
   });
 
   afterEach(async () => {
     vi.useRealTimers();
-    await cleanupRootDir();
+    await fs.rm(rootDir, { recursive: true, force: true });
   });
 
   it("creates and retrieves an artifact", async () => {

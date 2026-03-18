@@ -1,24 +1,25 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/diffs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiffScreenshotter } from "./browser.js";
 import { DEFAULT_DIFFS_TOOL_DEFAULTS } from "./config.js";
 import { DiffArtifactStore } from "./store.js";
-import { createDiffStoreHarness } from "./test-helpers.js";
 import { createDiffsTool } from "./tool.js";
 import type { DiffRenderOptions } from "./types.js";
 
 describe("diffs tool", () => {
+  let rootDir: string;
   let store: DiffArtifactStore;
-  let cleanupRootDir: () => Promise<void>;
 
   beforeEach(async () => {
-    ({ store, cleanup: cleanupRootDir } = await createDiffStoreHarness("openclaw-diffs-tool-"));
+    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-diffs-tool-"));
+    store = new DiffArtifactStore({ rootDir });
   });
 
   afterEach(async () => {
-    await cleanupRootDir();
+    await fs.rm(rootDir, { recursive: true, force: true });
   });
 
   it("returns a viewer URL in view mode", async () => {
@@ -94,11 +95,23 @@ describe("diffs tool", () => {
   });
 
   it("renders PDF output when fileFormat is pdf", async () => {
-    const screenshotter = createPdfScreenshotter({
-      assertOutputPath: (outputPath) => {
-        expect(outputPath).toMatch(/preview\.pdf$/);
-      },
-    });
+    const screenshotter = {
+      screenshotHtml: vi.fn(
+        async ({
+          outputPath,
+          image,
+        }: {
+          outputPath: string;
+          image: { format: string; qualityPreset: string; scale: number; maxWidth: number };
+        }) => {
+          expect(image.format).toBe("pdf");
+          expect(outputPath).toMatch(/preview\.pdf$/);
+          await fs.mkdir(path.dirname(outputPath), { recursive: true });
+          await fs.writeFile(outputPath, Buffer.from("%PDF-1.7"));
+          return outputPath;
+        },
+      ),
+    };
 
     const tool = createDiffsTool({
       api: createApi(),
@@ -195,7 +208,22 @@ describe("diffs tool", () => {
   });
 
   it("accepts deprecated format alias for fileFormat", async () => {
-    const screenshotter = createPdfScreenshotter();
+    const screenshotter = {
+      screenshotHtml: vi.fn(
+        async ({
+          outputPath,
+          image,
+        }: {
+          outputPath: string;
+          image: { format: string; qualityPreset: string; scale: number; maxWidth: number };
+        }) => {
+          expect(image.format).toBe("pdf");
+          await fs.mkdir(path.dirname(outputPath), { recursive: true });
+          await fs.writeFile(outputPath, Buffer.from("%PDF-1.7"));
+          return outputPath;
+        },
+      ),
+    };
 
     const tool = createDiffsTool({
       api: createApi(),
@@ -462,23 +490,6 @@ function createPngScreenshotter(
   return {
     screenshotHtml,
   };
-}
-
-function createPdfScreenshotter(
-  params: {
-    assertOutputPath?: (outputPath: string) => void;
-  } = {},
-): DiffScreenshotter {
-  const screenshotHtml: DiffScreenshotter["screenshotHtml"] = vi.fn(
-    async ({ outputPath, image }: { outputPath: string; image: DiffRenderOptions["image"] }) => {
-      expect(image.format).toBe("pdf");
-      params.assertOutputPath?.(outputPath);
-      await fs.mkdir(path.dirname(outputPath), { recursive: true });
-      await fs.writeFile(outputPath, Buffer.from("%PDF-1.7"));
-      return outputPath;
-    },
-  );
-  return { screenshotHtml };
 }
 
 function readTextContent(result: unknown, index: number): string {

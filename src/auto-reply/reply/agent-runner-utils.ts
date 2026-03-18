@@ -23,20 +23,12 @@ export function buildThreadingToolContext(params: {
 }): ChannelThreadingToolContext {
   const { sessionCtx, config, hasRepliedRef } = params;
   const currentMessageId = sessionCtx.MessageSidFull ?? sessionCtx.MessageSid;
-  const originProvider = resolveOriginMessageProvider({
-    originatingChannel: sessionCtx.OriginatingChannel,
-    provider: sessionCtx.Provider,
-  });
-  const originTo = resolveOriginMessageTo({
-    originatingTo: sessionCtx.OriginatingTo,
-    to: sessionCtx.To,
-  });
   if (!config) {
     return {
       currentMessageId,
     };
   }
-  const rawProvider = originProvider?.trim().toLowerCase();
+  const rawProvider = sessionCtx.Provider?.trim().toLowerCase();
   if (!rawProvider) {
     return {
       currentMessageId,
@@ -47,7 +39,7 @@ export function buildThreadingToolContext(params: {
   const dock = provider ? getChannelDock(provider) : undefined;
   if (!dock?.threading?.buildToolContext) {
     return {
-      currentChannelId: originTo?.trim() || undefined,
+      currentChannelId: sessionCtx.To?.trim() || undefined,
       currentChannelProvider: provider ?? (rawProvider as ChannelId),
       currentMessageId,
       hasRepliedRef,
@@ -58,9 +50,9 @@ export function buildThreadingToolContext(params: {
       cfg: config,
       accountId: sessionCtx.AccountId,
       context: {
-        Channel: originProvider,
+        Channel: sessionCtx.Provider,
         From: sessionCtx.From,
-        To: originTo,
+        To: sessionCtx.To,
         ChatType: sessionCtx.ChatType,
         CurrentMessageId: currentMessageId,
         ReplyToId: sessionCtx.ReplyToId,
@@ -174,7 +166,7 @@ export function buildEmbeddedRunBaseParams(params: {
   model: string;
   runId: string;
   authProfile: ReturnType<typeof resolveProviderScopedAuthProfile>;
-  allowTransientCooldownProbe?: boolean;
+  allowRateLimitCooldownProbe?: boolean;
 }) {
   return {
     sessionFile: params.run.sessionFile,
@@ -183,7 +175,6 @@ export function buildEmbeddedRunBaseParams(params: {
     config: params.run.config,
     skillsSnapshot: params.run.skillsSnapshot,
     ownerNumbers: params.run.ownerNumbers,
-    inputProvenance: params.run.inputProvenance,
     senderIsOwner: params.run.senderIsOwner,
     enforceFinalTag: resolveEnforceFinalTag(params.run, params.provider),
     provider: params.provider,
@@ -196,7 +187,7 @@ export function buildEmbeddedRunBaseParams(params: {
     bashElevated: params.run.bashElevated,
     timeoutMs: params.run.timeoutMs,
     runId: params.runId,
-    allowTransientCooldownProbe: params.allowTransientCooldownProbe,
+    allowRateLimitCooldownProbe: params.allowRateLimitCooldownProbe,
   };
 }
 

@@ -1,9 +1,4 @@
-import {
-  authorizeConfigWrite,
-  canBypassConfigWritePolicy,
-  formatConfigWriteDeniedMessage,
-  resolveConfigWriteTargetFromPath,
-} from "../../channels/plugins/config-writes.js";
+import { resolveChannelConfigWrites } from "../../channels/plugins/config-writes.js";
 import { normalizeChannelId } from "../../channels/registry.js";
 import {
   getConfigValueAtPath,
@@ -22,11 +17,7 @@ import {
   setConfigOverride,
   unsetConfigOverride,
 } from "../../config/runtime-overrides.js";
-import {
-  rejectUnauthorizedCommand,
-  requireCommandFlagEnabled,
-  requireGatewayClientScopeForInternalChannel,
-} from "./command-gates.js";
+import { rejectUnauthorizedCommand, requireCommandFlagEnabled } from "./command-gates.js";
 import type { CommandHandler } from "./commands-types.js";
 import { parseConfigCommand } from "./config-commands.js";
 import { parseDebugCommand } from "./debug-commands.js";
@@ -57,39 +48,22 @@ export const handleConfigCommand: CommandHandler = async (params, allowTextComma
     };
   }
 
-  let parsedWritePath: string[] | undefined;
   if (configCommand.action === "set" || configCommand.action === "unset") {
-    const missingAdminScope = requireGatewayClientScopeForInternalChannel(params, {
-      label: "/config write",
-      allowedScopes: ["operator.admin"],
-      missingText: "❌ /config set|unset requires operator.admin for gateway clients.",
-    });
-    if (missingAdminScope) {
-      return missingAdminScope;
-    }
-    const parsedPath = parseConfigPath(configCommand.path);
-    if (!parsedPath.ok || !parsedPath.path) {
-      return {
-        shouldContinue: false,
-        reply: { text: `⚠️ ${parsedPath.error ?? "Invalid path."}` },
-      };
-    }
-    parsedWritePath = parsedPath.path;
     const channelId = params.command.channelId ?? normalizeChannelId(params.command.channel);
-    const writeAuth = authorizeConfigWrite({
+    const allowWrites = resolveChannelConfigWrites({
       cfg: params.cfg,
-      origin: { channelId, accountId: params.ctx.AccountId },
-      target: resolveConfigWriteTargetFromPath(parsedWritePath),
-      allowBypass: canBypassConfigWritePolicy({
-        channel: params.command.channel,
-        gatewayClientScopes: params.ctx.GatewayClientScopes,
-      }),
+      channelId,
+      accountId: params.ctx.AccountId,
     });
-    if (!writeAuth.allowed) {
+    if (!allowWrites) {
+      const channelLabel = channelId ?? "this channel";
+      const hint = channelId
+        ? `channels.${channelId}.configWrites=true`
+        : "channels.<channel>.configWrites=true";
       return {
         shouldContinue: false,
         reply: {
-          text: formatConfigWriteDeniedMessage({ result: writeAuth, fallbackChannelId: channelId }),
+          text: `⚠️ Config writes are disabled for ${channelLabel}. Set ${hint} to enable.`,
         },
       };
     }
@@ -133,7 +107,14 @@ export const handleConfigCommand: CommandHandler = async (params, allowTextComma
   }
 
   if (configCommand.action === "unset") {
-    const removed = unsetConfigValueAtPath(parsedBase, parsedWritePath ?? []);
+    const parsedPath = parseConfigPath(configCommand.path);
+    if (!parsedPath.ok || !parsedPath.path) {
+      return {
+        shouldContinue: false,
+        reply: { text: `⚠️ ${parsedPath.error ?? "Invalid path."}` },
+      };
+    }
+    const removed = unsetConfigValueAtPath(parsedBase, parsedPath.path);
     if (!removed) {
       return {
         shouldContinue: false,
@@ -158,7 +139,14 @@ export const handleConfigCommand: CommandHandler = async (params, allowTextComma
   }
 
   if (configCommand.action === "set") {
-    setConfigValueAtPath(parsedBase, parsedWritePath ?? [], configCommand.value);
+    const parsedPath = parseConfigPath(configCommand.path);
+    if (!parsedPath.ok || !parsedPath.path) {
+      return {
+        shouldContinue: false,
+        reply: { text: `⚠️ ${parsedPath.error ?? "Invalid path."}` },
+      };
+    }
+    setConfigValueAtPath(parsedBase, parsedPath.path, configCommand.value);
     const validated = validateConfigObjectWithPlugins(parsedBase);
     if (!validated.ok) {
       const issue = validated.issues[0];

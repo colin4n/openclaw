@@ -4,11 +4,9 @@ import {
   createScopedPairingAccess,
   createReplyPrefixOptions,
   evictOldHistoryKeys,
-  issuePairingChallenge,
   logAckFailure,
   logInboundDrop,
   logTypingFailure,
-  mapAllowFromEntries,
   readStoreAllowFromForDmPolicy,
   recordPendingHistoryEntryIfEnabled,
   resolveAckReaction,
@@ -38,10 +36,6 @@ import {
   resolveBlueBubblesMessageId,
   resolveReplyContextFromCache,
 } from "./monitor-reply-cache.js";
-import {
-  hasBlueBubblesSelfChatCopy,
-  rememberBlueBubblesSelfChatCopy,
-} from "./monitor-self-chat-cache.js";
 import type {
   BlueBubblesCoreRuntime,
   BlueBubblesRuntimeEnv,
@@ -51,12 +45,7 @@ import { isBlueBubblesPrivateApiEnabled } from "./probe.js";
 import { normalizeBlueBubblesReactionInput, sendBlueBubblesReaction } from "./reactions.js";
 import { normalizeSecretInputString } from "./secret-input.js";
 import { resolveChatGuidForTarget, sendMessageBlueBubbles } from "./send.js";
-import {
-  extractHandleFromChatGuid,
-  formatBlueBubblesChatTarget,
-  isAllowedBlueBubblesSender,
-  normalizeBlueBubblesHandle,
-} from "./targets.js";
+import { formatBlueBubblesChatTarget, isAllowedBlueBubblesSender } from "./targets.js";
 
 const DEFAULT_TEXT_LIMIT = 4000;
 const invalidAckReactions = new Set<string>();
@@ -87,19 +76,6 @@ function trimOrUndefined(value?: string | null): string | undefined {
 
 function normalizeSnippet(value: string): string {
   return stripMarkdown(value).replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function isBlueBubblesSelfChatMessage(
-  message: NormalizedWebhookMessage,
-  isGroup: boolean,
-): boolean {
-  if (isGroup || !message.senderIdExplicit) {
-    return false;
-  }
-  const chatHandle =
-    (message.chatGuid ? extractHandleFromChatGuid(message.chatGuid) : null) ??
-    normalizeBlueBubblesHandle(message.chatIdentifier ?? "");
-  return Boolean(chatHandle) && chatHandle === message.senderId;
 }
 
 function prunePendingOutboundMessageIds(now = Date.now()): void {
@@ -475,27 +451,8 @@ export async function processMessage(
       ? `removed ${tapbackParsed.emoji} reaction`
       : `reacted with ${tapbackParsed.emoji}`
     : text || placeholder;
-  const isSelfChatMessage = isBlueBubblesSelfChatMessage(message, isGroup);
-  const selfChatLookup = {
-    accountId: account.accountId,
-    chatGuid: message.chatGuid,
-    chatIdentifier: message.chatIdentifier,
-    chatId: message.chatId,
-    senderId: message.senderId,
-    body: rawBody,
-    timestamp: message.timestamp,
-  };
 
   const cacheMessageId = message.messageId?.trim();
-  const confirmedOutboundCacheEntry = cacheMessageId
-    ? resolveReplyContextFromCache({
-        accountId: account.accountId,
-        replyToId: cacheMessageId,
-        chatGuid: message.chatGuid,
-        chatIdentifier: message.chatIdentifier,
-        chatId: message.chatId,
-      })
-    : null;
   let messageShortId: string | undefined;
   const cacheInboundMessage = () => {
     if (!cacheMessageId) {
@@ -517,12 +474,6 @@ export async function processMessage(
   if (message.fromMe) {
     // Cache from-me messages so reply context can resolve sender/body.
     cacheInboundMessage();
-    const confirmedAssistantOutbound =
-      confirmedOutboundCacheEntry?.senderLabel === "me" &&
-      normalizeSnippet(confirmedOutboundCacheEntry.body ?? "") === normalizeSnippet(rawBody);
-    if (isSelfChatMessage && confirmedAssistantOutbound) {
-      rememberBlueBubblesSelfChatCopy(selfChatLookup);
-    }
     if (cacheMessageId) {
       const pending = consumePendingOutboundMessageId({
         accountId: account.accountId,
@@ -546,11 +497,6 @@ export async function processMessage(
     return;
   }
 
-  if (isSelfChatMessage && hasBlueBubblesSelfChatCopy(selfChatLookup)) {
-    logVerbose(core, runtime, `drop: reflected self-chat duplicate sender=${message.senderId}`);
-    return;
-  }
-
   if (!rawBody) {
     logVerbose(core, runtime, `drop: empty text sender=${message.senderId}`);
     return;
@@ -563,7 +509,7 @@ export async function processMessage(
 
   const dmPolicy = account.config.dmPolicy ?? "pairing";
   const groupPolicy = account.config.groupPolicy ?? "allowlist";
-  const configuredAllowFrom = mapAllowFromEntries(account.config.allowFrom);
+  const configuredAllowFrom = (account.config.allowFrom ?? []).map((entry) => String(entry));
   const storeAllowFrom = await readStoreAllowFromForDmPolicy({
     provider: "bluebubbles",
     accountId: account.accountId,
@@ -649,24 +595,25 @@ export async function processMessage(
     }
 
     if (accessDecision.decision === "pairing") {
-      await issuePairingChallenge({
-        channel: "bluebubbles",
-        senderId: message.senderId,
-        senderIdLine: `Your BlueBubbles sender id: ${message.senderId}`,
+      const { code, created } = await pairing.upsertPairingRequest({
+        id: message.senderId,
         meta: { name: message.senderName },
-        upsertPairingRequest: pairing.upsertPairingRequest,
-        onCreated: () => {
-          runtime.log?.(`[bluebubbles] pairing request sender=${message.senderId} created=true`);
-          logVerbose(core, runtime, `bluebubbles pairing request sender=${message.senderId}`);
-        },
-        sendPairingReply: async (text) => {
-          await sendMessageBlueBubbles(message.senderId, text, {
-            cfg: config,
-            accountId: account.accountId,
-          });
+      });
+      runtime.log?.(`[bluebubbles] pairing request sender=${message.senderId} created=${created}`);
+      if (created) {
+        logVerbose(core, runtime, `bluebubbles pairing request sender=${message.senderId}`);
+        try {
+          await sendMessageBlueBubbles(
+            message.senderId,
+            core.channel.pairing.buildPairingReply({
+              channel: "bluebubbles",
+              idLine: `Your BlueBubbles sender id: ${message.senderId}`,
+              code,
+            }),
+            { cfg: config, accountId: account.accountId },
+          );
           statusSink?.({ lastOutboundAt: Date.now() });
-        },
-        onReplyError: (err) => {
+        } catch (err) {
           logVerbose(
             core,
             runtime,
@@ -675,8 +622,8 @@ export async function processMessage(
           runtime.error?.(
             `[bluebubbles] pairing reply failed sender=${message.senderId}: ${String(err)}`,
           );
-        },
-      });
+        }
+      }
       return;
     }
 

@@ -2,13 +2,9 @@ import "./run.overflow-compaction.mocks.shared.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isCompactionFailureError, isLikelyContextOverflowError } from "../pi-embedded-helpers.js";
 
-vi.mock(import("../../utils.js"), async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    resolveUserPath: vi.fn((p: string) => p),
-  };
-});
+vi.mock("../../utils.js", () => ({
+  resolveUserPath: vi.fn((p: string) => p),
+}));
 
 import { log } from "./logger.js";
 import { runEmbeddedPiAgent } from "./run.js";
@@ -20,7 +16,6 @@ import {
   queueOverflowAttemptWithOversizedToolOutput,
 } from "./run.overflow-compaction.fixture.js";
 import {
-  mockedContextEngine,
   mockedCompactDirect,
   mockedRunEmbeddedAttempt,
   mockedSessionLikelyHasOversizedToolResults,
@@ -35,11 +30,6 @@ const mockedIsLikelyContextOverflowError = vi.mocked(isLikelyContextOverflowErro
 describe("overflow compaction in run loop", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedRunEmbeddedAttempt.mockReset();
-    mockedCompactDirect.mockReset();
-    mockedSessionLikelyHasOversizedToolResults.mockReset();
-    mockedTruncateOversizedToolResultsInSession.mockReset();
-    mockedContextEngine.info.ownsCompaction = false;
     mockedIsCompactionFailureError.mockImplementation((msg?: string) => {
       if (!msg) {
         return false;
@@ -82,9 +72,7 @@ describe("overflow compaction in run loop", () => {
 
     expect(mockedCompactDirect).toHaveBeenCalledTimes(1);
     expect(mockedCompactDirect).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runtimeContext: expect.objectContaining({ authProfileId: "test-profile" }),
-      }),
+      expect.objectContaining({ authProfileId: "test-profile" }),
     );
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(2);
     expect(log.warn).toHaveBeenCalledWith(

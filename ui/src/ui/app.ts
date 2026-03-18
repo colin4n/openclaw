@@ -42,7 +42,6 @@ import {
   loadOverview as loadOverviewInternal,
   setTab as setTabInternal,
   setTheme as setThemeInternal,
-  setThemeMode as setThemeModeInternal,
   onPopState as onPopStateInternal,
 } from "./app-settings.ts";
 import {
@@ -62,7 +61,7 @@ import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
 import { loadSettings, type UiSettings } from "./storage.ts";
-import type { ResolvedTheme, ThemeMode, ThemeName } from "./theme.ts";
+import type { ResolvedTheme, ThemeMode } from "./theme.ts";
 import type {
   AgentsListResult,
   AgentsFilesListResult,
@@ -124,8 +123,7 @@ export class OpenClawApp extends LitElement {
   @state() tab: Tab = "chat";
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
-  @state() theme: ThemeName = this.settings.theme;
-  @state() themeMode: ThemeMode = this.settings.themeMode;
+  @state() theme: ThemeMode = this.settings.theme ?? "system";
   @state() themeResolved: ResolvedTheme = "dark";
   @state() hello: GatewayHelloOk | null = null;
   @state() lastError: string | null = null;
@@ -146,7 +144,6 @@ export class OpenClawApp extends LitElement {
   @state() chatMessage = "";
   @state() chatMessages: unknown[] = [];
   @state() chatToolMessages: unknown[] = [];
-  @state() chatStreamSegments: Array<{ text: string; ts: number }> = [];
   @state() chatStream: string | null = null;
   @state() chatStreamStartedAt: number | null = null;
   @state() chatRunId: string | null = null;
@@ -180,7 +177,6 @@ export class OpenClawApp extends LitElement {
   @state() execApprovalBusy = false;
   @state() execApprovalError: string | null = null;
   @state() pendingGatewayUrl: string | null = null;
-  pendingGatewayToken: string | null = null;
 
   @state() configLoading = false;
   @state() configRaw = "{\n}\n";
@@ -473,16 +469,8 @@ export class OpenClawApp extends LitElement {
     setTabInternal(this as unknown as Parameters<typeof setTabInternal>[0], next);
   }
 
-  setTheme(next: ThemeName, context?: Parameters<typeof setThemeInternal>[2]) {
+  setTheme(next: ThemeMode, context?: Parameters<typeof setThemeInternal>[2]) {
     setThemeInternal(this as unknown as Parameters<typeof setThemeInternal>[0], next, context);
-  }
-
-  setThemeMode(next: ThemeMode, context?: Parameters<typeof setThemeModeInternal>[2]) {
-    setThemeModeInternal(
-      this as unknown as Parameters<typeof setThemeModeInternal>[0],
-      next,
-      context,
-    );
   }
 
   async loadOverview() {
@@ -584,20 +572,16 @@ export class OpenClawApp extends LitElement {
     if (!nextGatewayUrl) {
       return;
     }
-    const nextToken = this.pendingGatewayToken?.trim() || "";
     this.pendingGatewayUrl = null;
-    this.pendingGatewayToken = null;
     applySettingsInternal(this as unknown as Parameters<typeof applySettingsInternal>[0], {
       ...this.settings,
       gatewayUrl: nextGatewayUrl,
-      token: nextToken,
     });
     this.connect();
   }
 
   handleGatewayUrlCancel() {
     this.pendingGatewayUrl = null;
-    this.pendingGatewayToken = null;
   }
 
   // Sidebar handlers for tool output viewing

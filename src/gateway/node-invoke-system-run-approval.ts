@@ -1,5 +1,5 @@
 import { resolveSystemRunApprovalRuntimeContext } from "../infra/system-run-approval-context.js";
-import { resolveSystemRunCommandRequest } from "../infra/system-run-command.js";
+import { resolveSystemRunCommand } from "../infra/system-run-command.js";
 import type { ExecApprovalRecord } from "./exec-approval-manager.js";
 import {
   systemRunApprovalGuardError,
@@ -13,7 +13,6 @@ import {
 type SystemRunParamsLike = {
   command?: unknown;
   rawCommand?: unknown;
-  systemRunPlan?: unknown;
   cwd?: unknown;
   env?: unknown;
   timeoutMs?: unknown;
@@ -23,7 +22,6 @@ type SystemRunParamsLike = {
   approved?: unknown;
   approvalDecision?: unknown;
   runId?: unknown;
-  suppressNotifyOnExit?: unknown;
 };
 
 type ApprovalLookup = {
@@ -71,7 +69,6 @@ function pickSystemRunParams(raw: Record<string, unknown>): Record<string, unkno
   for (const key of [
     "command",
     "rawCommand",
-    "systemRunPlan",
     "cwd",
     "env",
     "timeoutMs",
@@ -79,7 +76,6 @@ function pickSystemRunParams(raw: Record<string, unknown>): Record<string, unkno
     "agentId",
     "sessionKey",
     "runId",
-    "suppressNotifyOnExit",
   ]) {
     if (key in raw) {
       next[key] = raw[key];
@@ -117,7 +113,7 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
   const next: Record<string, unknown> = pickSystemRunParams(obj);
 
   if (!wantsApprovalOverride) {
-    const cmdTextResolution = resolveSystemRunCommandRequest({
+    const cmdTextResolution = resolveSystemRunCommand({
       command: p.command,
       rawCommand: p.rawCommand,
     });
@@ -229,9 +225,8 @@ export function sanitizeSystemRunParamsForForwarding(opts: {
   }
   if (runtimeContext.plan) {
     next.command = [...runtimeContext.plan.argv];
-    next.systemRunPlan = runtimeContext.plan;
-    if (runtimeContext.commandText) {
-      next.rawCommand = runtimeContext.commandText;
+    if (runtimeContext.rawCommand) {
+      next.rawCommand = runtimeContext.rawCommand;
     } else {
       delete next.rawCommand;
     }

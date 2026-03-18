@@ -72,7 +72,6 @@ export function createAcpxRuntimeService(
             logger: ctx.logger,
             expectedVersion: pluginConfig.expectedVersion,
             allowInstall: pluginConfig.allowPluginLocalInstall,
-            stripProviderAuthEnvVars: pluginConfig.stripProviderAuthEnvVars,
             spawnOptions: {
               strictWindowsCmdWrapper: pluginConfig.strictWindowsCmdWrapper,
             },

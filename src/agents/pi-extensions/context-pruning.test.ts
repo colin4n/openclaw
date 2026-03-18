@@ -358,26 +358,21 @@ describe("context-pruning", () => {
     expect(toolText(findToolResult(next, "t2"))).toContain("y".repeat(20_000));
   });
 
-  it("replaces image blocks in tool results during soft trim", () => {
+  it("skips tool results that contain images (no soft trim, no hard clear)", () => {
     const messages: AgentMessage[] = [
       makeUser("u1"),
       makeImageToolResult({
         toolCallId: "t1",
         toolName: "exec",
-        text: "visible tool text",
+        text: "x".repeat(20_000),
       }),
     ];
 
-    const next = pruneWithAggressiveDefaults(messages, {
-      hardClearRatio: 10.0,
-      hardClear: { enabled: false, placeholder: "[cleared]" },
-      softTrim: { maxChars: 200, headChars: 100, tailChars: 100 },
-    });
+    const next = pruneWithAggressiveDefaults(messages);
 
     const tool = findToolResult(next, "t1");
-    expect(tool.content.some((b) => b.type === "image")).toBe(false);
-    expect(toolText(tool)).toContain("[image removed during context pruning]");
-    expect(toolText(tool)).toContain("visible tool text");
+    expect(tool.content.some((b) => b.type === "image")).toBe(true);
+    expect(toolText(tool)).toContain("x".repeat(20_000));
   });
 
   it("soft-trims across block boundaries", () => {

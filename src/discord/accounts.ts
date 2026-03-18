@@ -19,21 +19,18 @@ const { listAccountIds, resolveDefaultAccountId } = createAccountListHelpers("di
 export const listDiscordAccountIds = listAccountIds;
 export const resolveDefaultDiscordAccountId = resolveDefaultAccountId;
 
-export function resolveDiscordAccountConfig(
+function resolveAccountConfig(
   cfg: OpenClawConfig,
   accountId: string,
 ): DiscordAccountConfig | undefined {
   return resolveAccountEntry(cfg.channels?.discord?.accounts, accountId);
 }
 
-export function mergeDiscordAccountConfig(
-  cfg: OpenClawConfig,
-  accountId: string,
-): DiscordAccountConfig {
+function mergeDiscordAccountConfig(cfg: OpenClawConfig, accountId: string): DiscordAccountConfig {
   const { accounts: _ignored, ...base } = (cfg.channels?.discord ?? {}) as DiscordAccountConfig & {
     accounts?: unknown;
   };
-  const account = resolveDiscordAccountConfig(cfg, accountId) ?? {};
+  const account = resolveAccountConfig(cfg, accountId) ?? {};
   return { ...base, ...account };
 }
 
@@ -44,7 +41,7 @@ export function createDiscordActionGate(params: {
   const accountId = normalizeAccountId(params.accountId);
   return createAccountActionGate({
     baseActions: params.cfg.channels?.discord?.actions,
-    accountActions: resolveDiscordAccountConfig(params.cfg, accountId)?.actions,
+    accountActions: resolveAccountConfig(params.cfg, accountId)?.actions,
   });
 }
 
@@ -66,20 +63,6 @@ export function resolveDiscordAccount(params: {
     tokenSource: tokenResolution.source,
     config: merged,
   };
-}
-
-export function resolveDiscordMaxLinesPerMessage(params: {
-  cfg: OpenClawConfig;
-  discordConfig?: DiscordAccountConfig | null;
-  accountId?: string | null;
-}): number | undefined {
-  if (typeof params.discordConfig?.maxLinesPerMessage === "number") {
-    return params.discordConfig.maxLinesPerMessage;
-  }
-  return resolveDiscordAccount({
-    cfg: params.cfg,
-    accountId: params.accountId,
-  }).config.maxLinesPerMessage;
 }
 
 export function listEnabledDiscordAccounts(cfg: OpenClawConfig): ResolvedDiscordAccount[] {

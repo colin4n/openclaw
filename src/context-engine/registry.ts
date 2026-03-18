@@ -12,45 +12,27 @@ export type ContextEngineFactory = () => ContextEngine | Promise<ContextEngine>;
 // Registry (module-level singleton)
 // ---------------------------------------------------------------------------
 
-const CONTEXT_ENGINE_REGISTRY_STATE = Symbol.for("openclaw.contextEngineRegistryState");
-
-type ContextEngineRegistryState = {
-  engines: Map<string, ContextEngineFactory>;
-};
-
-// Keep context-engine registrations process-global so duplicated dist chunks
-// still share one registry map at runtime.
-function getContextEngineRegistryState(): ContextEngineRegistryState {
-  const globalState = globalThis as typeof globalThis & {
-    [CONTEXT_ENGINE_REGISTRY_STATE]?: ContextEngineRegistryState;
-  };
-  if (!globalState[CONTEXT_ENGINE_REGISTRY_STATE]) {
-    globalState[CONTEXT_ENGINE_REGISTRY_STATE] = {
-      engines: new Map<string, ContextEngineFactory>(),
-    };
-  }
-  return globalState[CONTEXT_ENGINE_REGISTRY_STATE];
-}
+const _engines = new Map<string, ContextEngineFactory>();
 
 /**
  * Register a context engine implementation under the given id.
  */
 export function registerContextEngine(id: string, factory: ContextEngineFactory): void {
-  getContextEngineRegistryState().engines.set(id, factory);
+  _engines.set(id, factory);
 }
 
 /**
  * Return the factory for a registered engine, or undefined.
  */
 export function getContextEngineFactory(id: string): ContextEngineFactory | undefined {
-  return getContextEngineRegistryState().engines.get(id);
+  return _engines.get(id);
 }
 
 /**
  * List all registered engine ids.
  */
 export function listContextEngineIds(): string[] {
-  return [...getContextEngineRegistryState().engines.keys()];
+  return [..._engines.keys()];
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +55,7 @@ export async function resolveContextEngine(config?: OpenClawConfig): Promise<Con
       ? slotValue.trim()
       : defaultSlotIdForKey("contextEngine");
 
-  const factory = getContextEngineRegistryState().engines.get(engineId);
+  const factory = _engines.get(engineId);
   if (!factory) {
     throw new Error(
       `Context engine "${engineId}" is not registered. ` +

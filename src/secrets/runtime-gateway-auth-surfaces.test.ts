@@ -111,6 +111,7 @@ describe("evaluateGatewayAuthSurfaceStates", () => {
       gateway: {
         mode: "local",
         remote: {
+          enabled: true,
           token: envRef("GW_REMOTE_TOKEN"),
         },
       },
@@ -130,6 +131,7 @@ describe("evaluateGatewayAuthSurfaceStates", () => {
           mode: "password",
         },
         remote: {
+          enabled: true,
           token: envRef("GW_REMOTE_TOKEN"),
         },
       },
@@ -142,31 +144,11 @@ describe("evaluateGatewayAuthSurfaceStates", () => {
     });
   });
 
-  it("marks gateway.remote.token inactive when local token SecretRef is configured", () => {
-    const states = evaluate({
-      gateway: {
-        mode: "local",
-        auth: {
-          mode: "token",
-          token: envRef("GW_AUTH_TOKEN"),
-        },
-        remote: {
-          token: envRef("GW_REMOTE_TOKEN"),
-        },
-      },
-    } as OpenClawConfig);
-
-    expect(states["gateway.remote.token"]).toMatchObject({
-      hasSecretRef: true,
-      active: false,
-      reason: "gateway.auth.token is configured.",
-    });
-  });
-
   it("marks gateway.remote.password active when remote url is configured", () => {
     const states = evaluate({
       gateway: {
         remote: {
+          enabled: true,
           url: "wss://gateway.example.com",
           password: envRef("GW_REMOTE_PASSWORD"),
         },
@@ -186,6 +168,7 @@ describe("evaluateGatewayAuthSurfaceStates", () => {
           mode: "token",
         },
         remote: {
+          enabled: true,
           password: envRef("GW_REMOTE_PASSWORD"),
         },
       },

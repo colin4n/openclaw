@@ -123,25 +123,21 @@ async function readInstalledPackageVersion(dir: string): Promise<string | undefi
   }
 }
 
-function pathsEqual(
-  left: string | undefined,
-  right: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+function pathsEqual(left?: string, right?: string): boolean {
   if (!left || !right) {
     return false;
   }
-  return resolveUserPath(left, env) === resolveUserPath(right, env);
+  return resolveUserPath(left) === resolveUserPath(right);
 }
 
-function buildLoadPathHelpers(existing: string[], env: NodeJS.ProcessEnv = process.env) {
+function buildLoadPathHelpers(existing: string[]) {
   let paths = [...existing];
-  const resolveSet = () => new Set(paths.map((entry) => resolveUserPath(entry, env)));
+  const resolveSet = () => new Set(paths.map((entry) => resolveUserPath(entry)));
   let resolved = resolveSet();
   let changed = false;
 
   const addPath = (value: string) => {
-    const normalized = resolveUserPath(value, env);
+    const normalized = resolveUserPath(value);
     if (resolved.has(normalized)) {
       return;
     }
@@ -151,11 +147,11 @@ function buildLoadPathHelpers(existing: string[], env: NodeJS.ProcessEnv = proce
   };
 
   const removePath = (value: string) => {
-    const normalized = resolveUserPath(value, env);
+    const normalized = resolveUserPath(value);
     if (!resolved.has(normalized)) {
       return;
     }
-    paths = paths.filter((entry) => resolveUserPath(entry, env) !== normalized);
+    paths = paths.filter((entry) => resolveUserPath(entry) !== normalized);
     resolved = resolveSet();
     changed = true;
   };
@@ -401,26 +397,21 @@ export async function syncPluginsForUpdateChannel(params: {
   config: OpenClawConfig;
   channel: UpdateChannel;
   workspaceDir?: string;
-  env?: NodeJS.ProcessEnv;
   logger?: PluginUpdateLogger;
 }): Promise<PluginChannelSyncResult> {
-  const env = params.env ?? process.env;
   const summary: PluginChannelSyncSummary = {
     switchedToBundled: [],
     switchedToNpm: [],
     warnings: [],
     errors: [],
   };
-  const bundled = resolveBundledPluginSources({
-    workspaceDir: params.workspaceDir,
-    env,
-  });
+  const bundled = resolveBundledPluginSources({ workspaceDir: params.workspaceDir });
   if (bundled.size === 0) {
     return { config: params.config, changed: false, summary };
   }
 
   let next = params.config;
-  const loadHelpers = buildLoadPathHelpers(next.plugins?.load?.paths ?? [], env);
+  const loadHelpers = buildLoadPathHelpers(next.plugins?.load?.paths ?? []);
   const installs = next.plugins?.installs ?? {};
   let changed = false;
 
@@ -434,7 +425,7 @@ export async function syncPluginsForUpdateChannel(params: {
       loadHelpers.addPath(bundledInfo.localPath);
 
       const alreadyBundled =
-        record.source === "path" && pathsEqual(record.sourcePath, bundledInfo.localPath, env);
+        record.source === "path" && pathsEqual(record.sourcePath, bundledInfo.localPath);
       if (alreadyBundled) {
         continue;
       }
@@ -465,29 +456,45 @@ export async function syncPluginsForUpdateChannel(params: {
       if (record.source !== "path") {
         continue;
       }
-      if (!pathsEqual(record.sourcePath, bundledInfo.localPath, env)) {
+      if (!pathsEqual(record.sourcePath, bundledInfo.localPath)) {
         continue;
       }
-      // Keep explicit bundled installs on release channels. Replacing them with
-      // npm installs can reintroduce duplicate-id shadowing and packaging drift.
-      loadHelpers.addPath(bundledInfo.localPath);
-      const alreadyBundled =
-        record.source === "path" &&
-        pathsEqual(record.sourcePath, bundledInfo.localPath, env) &&
-        pathsEqual(record.installPath, bundledInfo.localPath, env);
-      if (alreadyBundled) {
+
+      const spec = record.spec ?? bundledInfo.npmSpec;
+      if (!spec) {
+        summary.warnings.push(`Missing npm spec for ${pluginId}; keeping local path.`);
+        continue;
+      }
+
+      let result: Awaited<ReturnType<typeof installPluginFromNpmSpec>>;
+      try {
+        result = await installPluginFromNpmSpec({
+          spec,
+          mode: "update",
+          expectedPluginId: pluginId,
+          logger: params.logger,
+        });
+      } catch (err) {
+        summary.errors.push(`Failed to install ${pluginId}: ${String(err)}`);
+        continue;
+      }
+      if (!result.ok) {
+        summary.errors.push(`Failed to install ${pluginId}: ${result.error}`);
         continue;
       }
 
       next = recordPluginInstall(next, {
         pluginId,
-        source: "path",
-        sourcePath: bundledInfo.localPath,
-        installPath: bundledInfo.localPath,
-        spec: record.spec ?? bundledInfo.npmSpec,
-        version: record.version,
+        source: "npm",
+        spec,
+        installPath: result.targetDir,
+        version: result.version,
+        ...buildNpmResolutionInstallFields(result.npmResolution),
+        sourcePath: undefined,
       });
+      summary.switchedToNpm.push(pluginId);
       changed = true;
+      loadHelpers.removePath(bundledInfo.localPath);
     }
   }
 

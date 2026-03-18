@@ -3,12 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import { INVALID_EXEC_SECRET_REF_IDS } from "../test-utils/secret-ref-test-vectors.js";
-import {
-  resolveSecretRefString,
-  resolveSecretRefValue,
-  resolveSecretRefValues,
-} from "./resolve.js";
+import { resolveSecretRefString, resolveSecretRefValue } from "./resolve.js";
 
 async function writeSecureFile(filePath: string, content: string, mode = 0o600): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
@@ -158,7 +153,7 @@ describe("secret ref resolver", () => {
       { source: "env", provider: "default", id: "OPENAI_API_KEY" },
       {
         config,
-        env: { OPENAI_API_KEY: "sk-env-value" }, // pragma: allowlist secret
+        env: { OPENAI_API_KEY: "sk-env-value" },
       },
     );
     expect(value).toBe("sk-env-value");
@@ -172,7 +167,7 @@ describe("secret ref resolver", () => {
       JSON.stringify({
         providers: {
           openai: {
-            apiKey: "sk-file-value", // pragma: allowlist secret
+            apiKey: "sk-file-value",
           },
         },
       }),
@@ -200,14 +195,14 @@ describe("secret ref resolver", () => {
 
   itPosix("uses timeoutMs as the default no-output timeout for exec providers", async () => {
     const root = await createCaseDir("exec-delay");
-    const scriptPath = path.join(root, "resolver-delay.sh");
-    // Keep the fixture cheap to start so this stays deterministic under a busy test run.
+    const scriptPath = path.join(root, "resolver-delay.mjs");
     await writeSecureFile(
       scriptPath,
       [
-        "#!/bin/sh",
-        "sleep 0.03",
-        'printf \'{"protocolVersion":1,"values":{"delayed":"ok"}}\'',
+        "#!/usr/bin/env node",
+        "setTimeout(() => {",
+        "  process.stdout.write(JSON.stringify({ protocolVersion: 1, values: { delayed: 'ok' } }));",
+        "}, 30);",
       ].join("\n"),
       0o700,
     );
@@ -237,16 +232,12 @@ describe("secret ref resolver", () => {
     expect(value).toBe("plain-secret");
   });
 
-  itPosix(
-    "tolerates stdin write errors when exec provider exits before consuming a large request",
-    async () => {
-      const refs = Array.from({ length: 256 }, (_, index) => ({
-        source: "exec" as const,
-        provider: "execmain",
-        id: `openai/${String(index).padStart(3, "0")}/${"x".repeat(240)}`,
-      }));
-      await expect(
-        resolveSecretRefValues(refs, {
+  itPosix("ignores EPIPE when exec provider exits before consuming stdin", async () => {
+    const oversizedId = `openai/${"x".repeat(120_000)}`;
+    await expect(
+      resolveSecretRefString(
+        { source: "exec", provider: "execmain", id: oversizedId },
+        {
           config: {
             secrets: {
               providers: {
@@ -257,10 +248,10 @@ describe("secret ref resolver", () => {
               },
             },
           },
-        }),
-      ).rejects.toThrow('Exec provider "execmain" returned empty stdout.');
-    },
-  );
+        },
+      ),
+    ).rejects.toThrow('Exec provider "execmain" returned empty stdout.');
+  });
 
   itPosix("rejects symlink command paths unless allowSymlinkCommand is enabled", async () => {
     const root = await createCaseDir("exec-link-reject");
@@ -384,7 +375,7 @@ describe("secret ref resolver", () => {
       JSON.stringify({
         providers: {
           openai: {
-            apiKey: "sk-file-value", // pragma: allowlist secret
+            apiKey: "sk-file-value",
           },
         },
       }),
@@ -440,18 +431,5 @@ describe("secret ref resolver", () => {
         },
       ),
     ).rejects.toThrow('has source "env" but ref requests "exec"');
-  });
-
-  it("rejects invalid exec ids before provider resolution", async () => {
-    for (const id of INVALID_EXEC_SECRET_REF_IDS) {
-      await expect(
-        resolveSecretRefValue(
-          { source: "exec", provider: "vault", id },
-          {
-            config: {},
-          },
-        ),
-      ).rejects.toThrow(/Exec secret reference id must match|Secret reference id is empty/);
-    }
   });
 });

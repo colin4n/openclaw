@@ -57,7 +57,6 @@ export type SubagentSpawnPreparation = {
 };
 
 export type SubagentEndReason = "deleted" | "completed" | "swept" | "released";
-export type ContextEngineRuntimeContext = Record<string, unknown>;
 
 /**
  * ContextEngine defines the pluggable contract for context management.
@@ -111,8 +110,8 @@ export interface ContextEngine {
     isHeartbeat?: boolean;
     /** Optional model context token budget for proactive compaction. */
     tokenBudget?: number;
-    /** Optional runtime-owned context for engines that need caller state. */
-    runtimeContext?: ContextEngineRuntimeContext;
+    /** Backward-compat only: legacy compaction bridge runtime params. */
+    legacyCompactionParams?: Record<string, unknown>;
   }): Promise<void>;
 
   /**
@@ -133,15 +132,15 @@ export interface ContextEngine {
     sessionId: string;
     sessionFile: string;
     tokenBudget?: number;
-    /** Force compaction even below the default trigger threshold. */
+    /** Backward-compat only: force legacy compaction behavior even below threshold. */
     force?: boolean;
     /** Optional live token estimate from the caller's active context. */
     currentTokenCount?: number;
-    /** Controls convergence target; defaults to budget. */
+    /** Controls convergence target; defaults to budget for compatibility. */
     compactionTarget?: "budget" | "threshold";
     customInstructions?: string;
-    /** Optional runtime-owned context for engines that need caller state. */
-    runtimeContext?: ContextEngineRuntimeContext;
+    /** Backward-compat only: full params bag for legacy compaction bridge. */
+    legacyParams?: Record<string, unknown>;
   }): Promise<CompactResult>;
 
   /**

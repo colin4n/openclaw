@@ -21,7 +21,6 @@ Secrets are resolved into an in-memory runtime snapshot.
 - Startup fails fast when an effectively active SecretRef cannot be resolved.
 - Reload uses atomic swap: full success, or keep the last-known-good snapshot.
 - Runtime requests read from the active in-memory snapshot only.
-- Outbound delivery paths also read from that active snapshot (for example Discord reply/thread delivery and Telegram action sends); they do not re-resolve SecretRefs on each send.
 
 This keeps secret-provider outages off hot request paths.
 
@@ -39,15 +38,14 @@ Examples of inactive surfaces:
 - Top-level channel credentials that no enabled account inherits.
 - Disabled tool/feature surfaces.
 - Web search provider-specific keys that are not selected by `tools.web.search.provider`.
-  In auto mode (provider unset), keys are consulted by precedence for provider auto-detection until one resolves.
-  After selection, non-selected provider keys are treated as inactive until selected.
-- `gateway.remote.token` / `gateway.remote.password` SecretRefs are active if one of these is true:
+  In auto mode (provider unset), provider-specific keys are also active for provider auto-detection.
+- `gateway.remote.token` / `gateway.remote.password` SecretRefs are active (when `gateway.remote.enabled` is not `false`) if one of these is true:
   - `gateway.mode=remote`
   - `gateway.remote.url` is configured
   - `gateway.tailscale.mode` is `serve` or `funnel`
-  - In local mode without those remote surfaces:
-    - `gateway.remote.token` is active when token auth can win and no env/auth token is configured.
-    - `gateway.remote.password` is active only when password auth can win and no env/auth password is configured.
+    In local mode without those remote surfaces:
+  - `gateway.remote.token` is active when token auth can win and no env/auth token is configured.
+  - `gateway.remote.password` is active only when password auth can win and no env/auth password is configured.
 - `gateway.auth.token` SecretRef is inactive for startup auth resolution when `OPENCLAW_GATEWAY_TOKEN` (or `CLAWDBOT_GATEWAY_TOKEN`) is set, because env token input wins for that runtime.
 
 ## Gateway auth surface diagnostics
@@ -114,7 +112,6 @@ Validation:
 
 - `provider` must match `^[a-z][a-z0-9_-]{0,63}$`
 - `id` must match `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`
-- `id` must not contain `.` or `..` as slash-delimited path segments (for example `a/../b` is rejected)
 
 ## Provider config
 
@@ -182,8 +179,8 @@ Request payload (stdin):
 
 Response payload (stdout):
 
-```jsonc
-{ "protocolVersion": 1, "values": { "providers/openai/apiKey": "<openai-api-key>" } } // pragma: allowlist secret
+```json
+{ "protocolVersion": 1, "values": { "providers/openai/apiKey": "sk-..." } }
 ```
 
 Optional per-id errors:
@@ -323,7 +320,6 @@ Activation contract:
 - Success swaps the snapshot atomically.
 - Startup failure aborts gateway startup.
 - Runtime reload failure keeps the last-known-good snapshot.
-- Providing an explicit per-call channel token to an outbound helper/tool call does not trigger SecretRef activation; activation points remain startup, reload, and explicit `secrets.reload`.
 
 ## Degraded and recovered signals
 
@@ -376,15 +372,10 @@ openclaw secrets audit --check
 
 Findings include:
 
-- plaintext values at rest (`openclaw.json`, `auth-profiles.json`, `.env`, and generated `agents/*/agent/models.json`)
-- plaintext sensitive provider header residues in generated `models.json` entries
+- plaintext values at rest (`openclaw.json`, `auth-profiles.json`, `.env`)
 - unresolved refs
 - precedence shadowing (`auth-profiles.json` taking priority over `openclaw.json` refs)
 - legacy residues (`auth.json`, OAuth reminders)
-
-Header residue note:
-
-- Sensitive provider header detection is name-heuristic based (common auth/credential header names and fragments such as `authorization`, `x-api-key`, `token`, `secret`, `password`, and `credential`).
 
 ### `secrets configure`
 
